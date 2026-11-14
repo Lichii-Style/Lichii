@@ -843,7 +843,9 @@ QPixmap BoxShelfStyle::CasePixmap(const QModelIndex& index, const Metrics& m, bo
 
 QPixmap BoxShelfStyle::SpinePixmap(const QModelIndex& index, const Metrics& m, bool dark) {
     const double dpr = devicePixelRatioF();
-    const QString key = PixmapKey(QLatin1Char('S'), index, m, dark, dpr);
+    // Names off: plain spines without the printed title (own cache key).
+    const QString key = PixmapKey(m_show_names ? QLatin1Char('S') : QLatin1Char('s'), index, m,
+                                  dark, dpr);
     if (const QPixmap* cached = m_pixmaps.object(key)) {
         return *cached;
     }
@@ -893,20 +895,22 @@ QPixmap BoxShelfStyle::SpinePixmap(const QModelIndex& index, const Metrics& m, b
     p.setPen(QPen(QColor(255, 255, 255, 70), 1.0));
     p.drawRect(thumb);
 
-    QFont f = font();
-    f.setBold(true);
-    f.setPixelSize(std::clamp(static_cast<int>(w * 0.42), 9, 22));
-    p.setFont(f);
-    p.setPen(QColor(255, 255, 255));
-    const double top = w + 2.0;
-    const double avail = std::max(10.0, h - top - 6.0);
-    p.save();
-    p.translate(w / 2.0, top);
-    p.rotate(90.0);
-    // One line down the spine (S4); a name that only just overflows may use the 6 px margin.
-    LibraryStyleContext::PaintName(&p, QRectF(0, -w / 2.0, avail, w).toAlignedRect(), title,
-                                   p.pen().color(), f, Qt::AlignVCenter | Qt::AlignLeft, 1, 6);
-    p.restore();
+    if (m_show_names) {
+        QFont f = font();
+        f.setBold(true);
+        f.setPixelSize(std::clamp(static_cast<int>(w * 0.42), 9, 22));
+        p.setFont(f);
+        p.setPen(QColor(255, 255, 255));
+        const double top = w + 2.0;
+        const double avail = std::max(10.0, h - top - 6.0);
+        p.save();
+        p.translate(w / 2.0, top);
+        p.rotate(90.0);
+        // One line down the spine (S4); a name that only just overflows may use the 6 px margin.
+        LibraryStyleContext::PaintName(&p, QRectF(0, -w / 2.0, avail, w).toAlignedRect(), title,
+                                       p.pen().color(), f, Qt::AlignVCenter | Qt::AlignLeft, 1, 6);
+        p.restore();
+    }
 
     p.setClipping(false);
     p.setBrush(Qt::NoBrush);
@@ -989,9 +993,12 @@ void BoxShelfStyle::DrawItem(QPainter& p, const Metrics& m, int pos, bool select
                                                                      info.update_version));
         }
         widest += f.pixelSize() * 1.4;
-        QPointF anchor(r.right() + 6.0 * u + widest, r.top() + h * 0.17);
+        // Stuck over the spine's right edge like the front view's stickers over the case corner,
+        // so they hide as little of the next spine as possible.
+        const double overlap = w * 0.35;
+        QPointF anchor(r.right() - overlap + widest, r.top() + h * 0.17);
         if (anchor.x() > width() - 6.0) {
-            anchor.setX(r.left() - 6.0 * u); // no room on the right: stick them on the left
+            anchor.setX(r.left() + overlap); // no room on the right: stick them on the left edge
         }
         if (info.is_game && UISettings::values.show_play_time.GetValue()) { // "New" if unplayed
             DrawSticker(&p, anchor, info.play_time_text, f, QColor(0xff, 0xd3, 0x6b));

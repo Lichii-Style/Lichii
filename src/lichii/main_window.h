@@ -8,6 +8,8 @@
 
 #include <memory>
 #include <optional>
+#include <string>
+#include <utility>
 
 #include <filesystem>
 #include <QElapsedTimer>
@@ -16,11 +18,14 @@
 #include <QMessageBox>
 #include <QFutureWatcher>
 #include <QPushButton>
+#include <QSet>
 #include <QTimer>
 #include <QTranslator>
 #include <qaction.h>
 
 #include "common/common_types.h"
+#include "common/nextendo.h"
+#include "common/nextendo_game_catalog.h"
 #include "common/settings_enums.h"
 #include "core/file_sys/nup_writer.h"
 #include "frontend_common/content_manager.h"
@@ -52,6 +57,7 @@ class GameList;
 class GImageInfo;
 class GRenderWindow;
 class OverlayDialog;
+class BugReportDialog;
 class ClassicLoadingScreen;
 class ControllerDialog;
 class QLabel;
@@ -60,6 +66,7 @@ class QPushButton;
 class QProgressDialog;
 class NupProgressDialog;
 class ShaderWarmDialog;
+class WhatsNewDialog;
 class NxTools;
 class QSlider;
 class QHBoxLayout;
@@ -241,6 +248,7 @@ signals:
 public slots:
     void OnLoadComplete();
     void OnExecuteProgram(std::size_t program_index);
+    void OnLaunchInNewSession(u64 program_id);
     void OnExit();
     void OnSaveConfig();
     void AmiiboSettingsShowDialog(const Core::Frontend::CabinetParameters& parameters,
@@ -295,7 +303,7 @@ private:
                   StartGameType with_config = StartGameType::Normal);
     void BootGameFromList(const QString& filename, StartGameType with_config);
     void ShutdownGame();
-    void TerminateEmulationThread();
+    void ExitIfEmulationThreadStuck();
 
     void SetDiscordEnabled(bool state);
     void LoadAmiibo(const QString& filename);
@@ -378,6 +386,7 @@ private slots:
     void OnGameListConvertToNup(const std::string& game_path);
     void OnGameListPrepareShaderWarm(u64 program_id, const std::string& game_path);
     void OnGameListDeleteShaderWarm(u64 program_id);
+    void OnGameListPrecompileShaders(u64 program_id, const std::string& game_path, bool on);
     void PrepareShaderPrecache(u64 title_id, const std::filesystem::path& game_path);
     void OnGameListExtractNup(const std::string& game_path);
     void OnGameListEditNupMetadata(const std::string& game_path);
@@ -387,7 +396,7 @@ private slots:
     void OnGameListOpenDirectory(const QString& directory);
     void OnGameListAddDirectory();
     void OnGameListShowList(bool show);
-    void OnGameListOpenPerGameProperties(const std::string& file);
+    void OnGameListOpenPerGameProperties(u64 title_id, const std::string& file);
     void OnLinkToRyujinx(const u64& program_id);
     void OnMenuLoadFile();
     void OnMenuLoadFolder();
@@ -407,6 +416,7 @@ private slots:
     void OnToggleGpuAccuracy();
     void OnToggleAdaptingFilter();
     void OnConfigurePerGame();
+    void OnOpenModStore();
     void OnLoadAmiibo();
     void OnOpenRootDataFolder();
     void OnOpenNANDFolder();
@@ -417,6 +427,7 @@ private slots:
     void OnInstallFirmware();
     void OnInstallFirmwareFromZIP();
     void OnInstallDecryptionKeys();
+    void MaybeShowStartupWhatsNew();
     void OnWhatsNew();
     void OnAbout();
     void OnEdenDependencies();
@@ -460,6 +471,7 @@ private slots:
     void OnCreateHomeMenuDesktopShortcut();
     void OnCreateHomeMenuApplicationMenuShortcut();
     void OnCaptureScreenshot();
+    void OnReportBug();
     /// Checks for decryption keys; `prompt` asks to install them when they are missing.
     void OnCheckFirmwareDecryption(bool prompt = true);
 #ifdef __unix__
@@ -481,9 +493,21 @@ private slots:
     void PromptGameLibraryStyle();
 
 #ifdef ENABLE_UPDATE_CHECKER
+    // A manual check reports every outcome and ignores the skipped release and remind-later time.
+    void CheckForUpdates(bool manual);
     void OnEmulatorUpdateAvailable();
 #endif
     void KeepNextendoSessionAlive();
+    // When a game boots with online play on: says why nextendo.network refuses it, if it does.
+    void CheckNextendoOnlineStatus();
+    // When a game boots with online play on: says when the signed game catalogue doesn't accept
+    // its version.
+    void CheckNextendoGameVersion(u64 title_id, std::string version);
+    // While a game runs: refreshes the friend list the friend service reads and sends presence.
+    void UpdateNextendoSocial();
+    // Pulls the Nextendo nickname and picture into the current user. Not while a game runs, as
+    // the guest reads the profile.
+    void SyncNextendoProfile(bool force);
 
 private:
     void OnGameListNxTool(const std::string& game_path, void (NxTools::*tool)(const std::string&));
@@ -501,6 +525,7 @@ private:
     void UpdateAAText();
     void UpdatePostShaderText();
     void UpdateFrameGenButton();
+
     void UpdateVolumeUI();
     void UpdateStatusBar();
     void UpdateGPUAccuracyButton();
@@ -513,6 +538,8 @@ private:
     void OpenURL(const QUrl& url);
     void LoadTranslation();
     void OpenPerGameConfiguration(u64 title_id, const std::string& file_name);
+    bool OpenModStore(QWidget* parent, u64 initial_title_id, const std::string& file_name,
+                      QSet<QString>& store_toggled);
     bool CheckFirmwarePresence();
     void SetFirmwareVersion();
     void SetFPSSuffix();
@@ -545,16 +572,27 @@ private:
 #ifdef ENABLE_UPDATE_CHECKER
     QFuture<UpdateChecker::CheckResult> update_future;
     QFutureWatcher<UpdateChecker::CheckResult> update_watcher;
+    bool update_check_running{};
+    bool update_check_manual{};
 #endif
 
     MultiplayerState* multiplayer_state = nullptr;
+    void RememberSpeedLimitBeforeHotkey();
+    void UndoSessionSpeedChanges();
+    /// The speed limit before the session's first Toggle Framerate Limit / turbo / slow hotkey,
+    /// and whether it was the global or the per-game value. Undone when the game stops, so the
+    /// hotkeys only last for the session; a change made in the configuration dialogs is kept.
+    struct SessionSpeedLimit {
+        bool value;
+        bool using_global;
+    };
+    std::optional<SessionSpeedLimit> speed_limit_before_hotkeys;
 
     GRenderWindow* render_window = nullptr;
     GameList* game_list = nullptr;
     LoadingScreen* loading_screen = nullptr;
     /// The original loading screen and closing dialog, used by every theme but Lichii Modern.
     ClassicLoadingScreen* classic_loading_screen = nullptr;
-    OverlayDialog* shutdown_dialog{};
     /// Whether the running game uses the modern loading screen, chosen when it boots.
     bool modern_loading_screen = true;
     /// Artwork captured before emulation starts, so shutdown never reads a loader being torn down.
@@ -564,10 +602,24 @@ private:
     bool deferred_library_style_prompt = false;
     QTimer shutdown_timer;
     QTimer emu_terminate_timer;
+    bool shutdown_game_in_progress{};
     QElapsedTimer emu_force_stop_clock;
     u64 shutdown_progress_seen{};
     QTimer nextendo_session_timer;
-    QFutureWatcher<bool> nextendo_session_watcher;
+    QFutureWatcher<Common::Nextendo::SignOutReason> nextendo_session_watcher;
+    QFutureWatcher<std::optional<Common::Nextendo::OnlineStatus>> nextendo_status_watcher;
+    // The profile nextendo_status_watcher checks.
+    Common::UUID nextendo_status_profile;
+    QFutureWatcher<std::optional<Common::Nextendo::GameCatalog>> nextendo_catalog_watcher;
+    std::optional<std::pair<u64, std::string>> nextendo_version_check;
+    QTimer nextendo_social_timer;
+    QFutureWatcher<void> nextendo_social_watcher;
+    QFutureWatcher<std::optional<Common::Nextendo::ProfilePull>> nextendo_profile_watcher;
+    Common::UUID nextendo_profile_user;
+    // A forced pull that has to wait for the game to stop or for the running pull.
+    bool nextendo_profile_force{};
+    OverlayDialog* shutdown_dialog{};
+    BugReportDialog* bug_report_dialog{};
     PerformanceOverlay* perf_overlay = nullptr;
 #ifdef HAS_RESHADE
     ConfigurePostProcessing* post_processing_dialog = nullptr;
@@ -595,6 +647,7 @@ private:
     QPushButton* aa_status_button = nullptr;
     QPushButton* post_shader_status_button = nullptr;
     QPushButton* frame_gen_status_button = nullptr;
+
     VideoCore::FrameGenState frame_gen_state{};
     u64 frame_gen_frames = 0;
     u64 dlss_evaluations = 0;
@@ -617,6 +670,8 @@ private:
     bool emulation_running = false;
     std::optional<CompatibilityReporting::Session> report_session;
     bool boot_in_progress = false;
+    bool mod_store_open = false;
+    QMetaObject::Connection startup_qlaunch_connection;
     bool close_pending = false;
     // The path to the game currently running
     QString current_game_path;
@@ -661,6 +716,8 @@ private:
     std::shared_ptr<std::atomic_bool> nup_cancel;
     bool nup_running{};
     QPointer<ShaderWarmDialog> shader_warm_dialog;
+    QPointer<WhatsNewDialog> whats_new_dialog;
+    bool startup_whats_new_pending{};
     NxTools* nx_tools = nullptr;
     bool nx_metadata_write_in_progress = false;
     std::string nup_source_path;

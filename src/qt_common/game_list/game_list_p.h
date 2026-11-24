@@ -140,6 +140,7 @@ public:
     static constexpr int FullPathRole = SortRole + 2;
     static constexpr int ProgramIdRole = SortRole + 3;
     static constexpr int FileTypeRole = SortRole + 4;
+    /// True when the picture comes from the game or its custom artwork, not the default art.
     static constexpr int HasIconRole = SortRole + 5;
     static constexpr int CardIconRole = SortRole + 6;
     /// Play time in seconds (qulonglong).
@@ -225,6 +226,11 @@ public:
 
         setData(tooltip, Qt::ToolTipRole);
 
+        SetPicture(this, picture_data);
+    }
+
+    /// Shows an image file as a game's picture, or the default art when it is not an image.
+    static void SetPicture(QStandardItem* item, const std::vector<u8>& picture_data) {
         const u32 size = UISettings::CurrentGameIconSize().GetValue();
 
         QPixmap picture;
@@ -235,6 +241,8 @@ public:
         }
         // Decode and scale the card artwork once, then share it through the bounded cache; the
         // item itself stores a cheap copy-on-write reference.
+        const u64 program_id = item->data(ProgramIdRole).toULongLong();
+        const QString game_path = item->data(FullPathRole).toString();
         const auto icon_hash = qHash(QByteArrayView{
             reinterpret_cast<const char*>(picture_data.data()),
             static_cast<qsizetype>(picture_data.size())});
@@ -256,9 +264,9 @@ public:
         }
         picture = picture.scaled(size, size, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
 
-        setData(RoundedIcon(picture), Qt::DecorationRole);
-        setData(has_icon, HasIconRole);
-        setData(card_picture, CardIconRole);
+        item->setData(RoundedIcon(picture), Qt::DecorationRole);
+        item->setData(has_icon, HasIconRole);
+        item->setData(card_picture, CardIconRole);
     }
 
     int type() const override {

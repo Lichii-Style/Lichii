@@ -15,6 +15,8 @@
 #include <QPainterPath>
 #include <QRectF>
 #include <QStringList>
+#include <QTextLayout>
+#include <QTextOption>
 #include <QWidget>
 #include "game_card.h"
 #include "lichii/game/common.h"

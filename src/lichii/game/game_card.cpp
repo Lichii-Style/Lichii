@@ -440,8 +440,10 @@ QRect GameCard::getCardRect(const QStyleOptionViewItem& option, const QModelInde
         card_top = option.rect.top() + cardMargin;
         card_height = option.rect.height() - cardMargin - 1 - ringRoom;
     } else {
-        // carousel mode
-        card_left = option.rect.left() + cardMargin + 4;
+        // carousel mode: centred in the cell, so the card and its ring stay inside it. Started
+        // cardMargin + 4 in, the card hung 4 px into the next cell, and moving the selection left
+        // a strip of the old ring there that nothing repainted.
+        card_left = option.rect.left() + (cell_width - (card_width - cardMargin)) / 2;
 
         // the delegate itself takes up the full height, but the card itself
         // gets centered

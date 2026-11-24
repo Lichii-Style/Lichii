@@ -21,6 +21,7 @@
 #include <QMouseEvent>
 #include <QPaintEvent>
 #include <QPainter>
+#include <QRegion>
 #include <QPainterPath>
 #include <QPalette>
 #include <QResizeEvent>
@@ -397,11 +398,27 @@ void ChannelGridStyle::SetCurrentRow(int row, bool notify, bool animate) {
     if (!index.isValid()) {
         return; // stale entry while a rebuild is pending
     }
-    const bool changed = CurrentRow() != row;
+    const int old_row = CurrentRow();
+    const bool changed = old_row != row;
+    const qreal old_scroll = scroll;
     current = QPersistentModelIndex{index};
     current_hint = row;
     EnsureVisible(row, animate);
-    update();
+    if (old_row >= 0 && scroll == old_scroll &&
+        page_anim.state() != QAbstractAnimation::Running) {
+        // Same page: only the two tiles (with their glow, name and info) and the dock change.
+        // A full repaint redrew every tile and empty slot on each step.
+        const Layout l = ComputeLayout();
+        const auto area = [&](int r) {
+            return TileRect(l, r).adjusted(-60, -60, 60, 60 + l.name_h);
+        };
+        QRegion dirty(area(old_row));
+        dirty += area(row);
+        dirty += QRect(0, l.dock_top - l.dip - 8, width(), height());
+        update(dirty);
+    } else {
+        update();
+    }
     if (changed && notify) {
         emit CurrentChanged(index);
     }
@@ -904,7 +921,7 @@ void ChannelGridStyle::paintEvent(QPaintEvent* event) {
     // The glow and gliding names repaint small areas many times a second: draw only the parts
     // that reach the area being repainted, or every frame redraws (and measures) all tiles
     // and the dock, enough to keep the GUI thread from reading the controller.
-    const QRect dirty = event->rect();
+    const QRegion dirty = event->region();
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
     p.setRenderHint(QPainter::SmoothPixmapTransform, true);
@@ -951,7 +968,7 @@ void ChannelGridStyle::paintEvent(QPaintEvent* event) {
             const int end = std::min(count, (page + 1) * l.per_page);
             // A tile's area: its name and info below, and the glow and grown frame around it.
             const auto reaches = [&](int row) {
-                return TileRect(l, row).adjusted(-60, -60, 60, 60 + l.name_h).intersects(dirty);
+                return dirty.intersects(TileRect(l, row).adjusted(-60, -60, 60, 60 + l.name_h));
             };
             for (int row = page * l.per_page; row < end; ++row) {
                 if (row != current_row && reaches(row)) {
@@ -1000,7 +1017,7 @@ void ChannelGridStyle::paintEvent(QPaintEvent* event) {
                 continue;
             }
             const QRectF a = ArrowRect(l, right);
-            if (!a.adjusted(-4, -4, 4, 4).intersects(dirty)) {
+            if (!dirty.intersects(a.adjusted(-4, -4, 4, 4).toAlignedRect())) {
                 continue;
             }
             QPolygonF tri;
@@ -1023,7 +1040,7 @@ void ChannelGridStyle::paintEvent(QPaintEvent* event) {
     }
 
     // The dock's edge dips up to l.dip above dock_top where the selected name sits.
-    if (QRect(0, l.dock_top - l.dip - 8, width(), height()).intersects(dirty)) {
+    if (dirty.intersects(QRect(0, l.dock_top - l.dip - 8, width(), height()))) {
         PaintDock(p, l);
     }
 }

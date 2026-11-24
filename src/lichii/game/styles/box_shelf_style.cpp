@@ -145,30 +145,6 @@ QPainterPath CaseShape(double w, double h) {
     return path;
 }
 
-/// CSS-like 3D for one case: `perspective(d) translateY(lift) scale(k) rotateY(angle)` with the
-/// transform origin at the bottom centre of the case (local x 0..w, y 0..h, z towards viewer).
-struct CaseView {
-    double w = 0, h = 0, d = 800, angle_deg = 0, scale = 1, lift = 0;
-    QPointF origin; // screen position of the bottom centre
-
-    QPointF Map(double x, double y, double z) const {
-        const double a = qDegreesToRadians(angle_deg);
-        const double dx = (x - w / 2) * scale;
-        const double dy = (y - h) * scale;
-        const double dz = z * scale;
-        const double xr = dx * std::cos(a) + dz * std::sin(a);
-        const double zr = -dx * std::sin(a) + dz * std::cos(a);
-        const double k = d / std::max(1.0, d - zr);
-        return {origin.x() + xr * k, origin.y() + (dy - lift) * k};
-    }
-    QPolygonF Front() const {
-        return QPolygonF{Map(0, 0, 0), Map(w, 0, 0), Map(w, h, 0), Map(0, h, 0)};
-    }
-    QPolygonF Spine(double depth) const {
-        return QPolygonF{Map(0, 0, -depth), Map(0, 0, 0), Map(0, h, 0), Map(0, h, -depth)};
-    }
-};
-
 /// Sticker in the Cartridges look: rounded tag, soft shadow, tilted 8 degrees.
 void DrawSticker(QPainter* p, const QPointF& right_top, const QString& text, const QFont& font,
                  const QColor& fill) {
@@ -193,6 +169,31 @@ void DrawSticker(QPainter* p, const QPointF& right_top, const QString& text, con
 }
 
 } // namespace
+
+/// CSS-like 3D for one case: `perspective(d) translateY(lift) scale(k) rotateY(angle)` with the
+/// transform origin at the bottom centre of the case (local x 0..w, y 0..h, z towards viewer).
+struct CaseView {
+    double w = 0, h = 0, d = 800, angle_deg = 0, scale = 1, lift = 0;
+    QPointF origin; // screen position of the bottom centre
+
+    QPointF Map(double x, double y, double z) const {
+        const double a = qDegreesToRadians(angle_deg);
+        const double dx = (x - w / 2) * scale;
+        const double dy = (y - h) * scale;
+        const double dz = z * scale;
+        const double xr = dx * std::cos(a) + dz * std::sin(a);
+        const double zr = -dx * std::sin(a) + dz * std::cos(a);
+        const double k = d / std::max(1.0, d - zr);
+        return {origin.x() + xr * k, origin.y() + (dy - lift) * k};
+    }
+    QPolygonF Front() const {
+        return QPolygonF{Map(0, 0, 0), Map(w, 0, 0), Map(w, h, 0), Map(0, h, 0)};
+    }
+    QPolygonF Spine(double depth) const {
+        return QPolygonF{Map(0, 0, -depth), Map(0, 0, 0), Map(0, h, 0), Map(0, h, -depth)};
+    }
+};
+
 
 BoxShelfStyle::BoxShelfStyle(QWidget* parent) : LibraryStyleView(parent), m_pixmaps(64 * 1024) {
     setFocusPolicy(Qt::StrongFocus);
@@ -1007,28 +1008,24 @@ void BoxShelfStyle::DrawItem(QPainter& p, const Metrics& m, int pos, bool select
     }
 }
 
-void BoxShelfStyle::DrawFront(QPainter& p, const Metrics& m, int pos, bool selected) {
-    const QModelIndex index = IndexAtPos(pos);
-    if (!index.isValid()) {
-        return;
-    }
-    const QRectF base = ItemRect(m, pos);
-    if (base.bottom() < -80.0 || base.top() > height() + 80.0) {
-        return;
-    }
+QRectF BoxShelfStyle::CaseBodyBounds(const CaseView& placed, const Metrics& m) const {
+    // Around the origin: the turned front, its spine and the soft shadow below.
+    CaseView view = placed;
+    view.origin = QPointF(0, 0);
+    const double u = m.case_w / 150.0;
+    QRectF bounds = view.Front().boundingRect().united(view.Spine(13.0 * u).boundingRect());
+    const QPointF c = bounds.center();
+    const double gx = bounds.width() * 0.035, gy = bounds.height() * 0.025;
+    bounds = bounds.united(bounds.translated(0, 12.0 * u).adjusted(-gx, -gy, gx, gy));
+    (void)c;
+    return bounds.adjusted(-3, -3, 3, 3);
+}
+
+void BoxShelfStyle::DrawCaseBody(QPainter& p, const CaseView& view, const QModelIndex& index,
+                                 const Metrics& m, bool selected, bool nx2) {
     const double w = m.case_w;
     const double h = m.case_h;
     const double u = w / 150.0;
-
-    // Unselected cases are turned so the spine shows; the selected one turns to face you.
-    CaseView view;
-    view.w = w;
-    view.h = h;
-    view.d = 800.0 * u;
-    view.angle_deg = selected ? 0.0 : 24.0;
-    view.scale = selected ? 1.1 : 1.0;
-    view.lift = 6.0 * u;
-    view.origin = QPointF(base.center().x(), base.bottom());
     const QPolygonF front = view.Front();
     const QRectF rect_src(0, 0, w, h);
 
@@ -1046,9 +1043,6 @@ void BoxShelfStyle::DrawFront(QPainter& p, const Metrics& m, int pos, bool selec
     }
     p.restore();
 
-    const LibraryStyles::GameInfo info =
-        IsGame(index) ? LibraryStyleContext::Info(index) : LibraryStyles::GameInfo{};
-    const bool nx2 = info.is_nx2 || (info.program_id >> 56) == 0x04;
 
     // Spine face, hinged on the left edge and folded back.
     if (!selected) {
@@ -1101,6 +1095,70 @@ void BoxShelfStyle::DrawFront(QPainter& p, const Metrics& m, int pos, bool selec
             p.drawPath(ring);
         }
         p.restore();
+    }
+
+}
+
+void BoxShelfStyle::DrawFront(QPainter& p, const Metrics& m, int pos, bool selected) {
+    const QModelIndex index = IndexAtPos(pos);
+    if (!index.isValid()) {
+        return;
+    }
+    const QRectF base = ItemRect(m, pos);
+    if (base.bottom() < -80.0 || base.top() > height() + 80.0) {
+        return;
+    }
+    const double w = m.case_w;
+    const double h = m.case_h;
+    const double u = w / 150.0;
+
+    // Unselected cases are turned so the spine shows; the selected one turns to face you.
+    CaseView view;
+    view.w = w;
+    view.h = h;
+    view.d = 800.0 * u;
+    view.angle_deg = selected ? 0.0 : 24.0;
+    view.scale = selected ? 1.1 : 1.0;
+    view.lift = 6.0 * u;
+    view.origin = QPointF(base.center().x(), base.bottom());
+    const QPolygonF front = view.Front();
+    const QRectF rect_src(0, 0, w, h);
+
+    const LibraryStyles::GameInfo info =
+        IsGame(index) ? LibraryStyleContext::Info(index) : LibraryStyles::GameInfo{};
+    const bool nx2 = info.is_nx2 || (info.program_id >> 56) == 0x04;
+
+    if (selected) {
+        DrawCaseBody(p, view, index, m, true, nx2);
+    } else {
+        // Every unselected case is turned the same way, only placed elsewhere: draw it once
+        // (the perspective pixmap and gradients are slow, for every case on every step) and
+        // copy it into place.
+        const QRectF bounds = CaseBodyBounds(view, m);
+        const double dpr = devicePixelRatioF();
+        const QString key = PixmapKey(QLatin1Char('T'), index, m, IsDark(), dpr);
+        QPixmap* cached = m_pixmaps.object(key);
+        if (cached == nullptr) {
+            QPixmap pm(QSize(std::max(1, qCeil(bounds.width() * dpr)),
+                             std::max(1, qCeil(bounds.height() * dpr))));
+            pm.setDevicePixelRatio(dpr);
+            pm.fill(Qt::transparent);
+            QPainter cp(&pm);
+            cp.setRenderHint(QPainter::Antialiasing, true);
+            cp.setRenderHint(QPainter::SmoothPixmapTransform, true);
+            CaseView local = view;
+            local.origin = -bounds.topLeft();
+            DrawCaseBody(cp, local, index, m, false, nx2);
+            cp.end();
+            cached = new QPixmap(pm);
+            m_pixmaps.insert(key, cached, std::max(1, pm.width() * pm.height() * 4 / 1024));
+            cached = m_pixmaps.object(key);
+        }
+        if (cached != nullptr) {
+            p.drawPixmap(QPointF(std::round(view.origin.x() + bounds.left()),
+                                 std::round(view.origin.y() + bounds.top())),
+                         *cached);
+        }
     }
 
     // Stickers: like Dense Grid, Info shows them on the selected case only.

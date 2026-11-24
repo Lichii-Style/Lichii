@@ -27,6 +27,8 @@ class QWheelEvent;
 namespace LibraryStyles {
 
 /// "Box Shelf": games stand as cases on a wooden table, front or spine out. Concept by inxomnyaa.
+struct CaseView;
+
 class BoxShelfStyle final : public LibraryStyleView {
     Q_OBJECT
 
@@ -85,6 +87,11 @@ private:
     void DrawItem(QPainter& p, const Metrics& m, int pos, bool selected, bool dark);
     /// Front mode: the case turned to show its spine, the selected one facing the viewer.
     void DrawFront(QPainter& p, const Metrics& m, int pos, bool selected);
+    /// Shadow, spine and front of one case as `view` places it; the selected one with its ring.
+    void DrawCaseBody(QPainter& p, const CaseView& view, const QModelIndex& index,
+                      const Metrics& m, bool selected, bool nx2);
+    /// What DrawCaseBody covers, relative to the view's origin.
+    QRectF CaseBodyBounds(const CaseView& view, const Metrics& m) const;
     /// White name bubble under a case, the same one the Cartridges style uses.
     void DrawNameBubble(QPainter& p, const Metrics& m, const QRectF& base, const QString& title,
                         bool selected);

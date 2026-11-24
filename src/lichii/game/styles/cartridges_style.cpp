@@ -4,6 +4,7 @@
 // Concept by inxomnyaa.
 
 #include <algorithm>
+#include <mutex>
 #include <cmath>
 #include <utility>
 #include <vector>
@@ -20,6 +21,7 @@
 #include <QLinearGradient>
 #include <QMouseEvent>
 #include <QPaintEvent>
+#include <QHash>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPalette>
@@ -104,31 +106,6 @@ QPainterPath BodyPath(qreal w, qreal h) {
     return body;
 }
 
-QFont FitFont(QFont font, const QString& text, qreal max_w, qreal max_h) {
-    // Every card of a size asks the same question: remember the answer instead of measuring
-    // the text at each pixel size again for every card.
-    static QHash<QString, int> fitted;
-    const QString key = font.key() + QLatin1Char('|') + text + QLatin1Char('|') +
-                        QString::number(qRound(max_w * 10)) + QLatin1Char('|') +
-                        QString::number(qRound(max_h * 10));
-    const auto found = fitted.constFind(key);
-    if (found != fitted.constEnd()) {
-        font.setPixelSize(*found);
-        return font;
-    }
-    int pixel_size = std::max(6, static_cast<int>(max_h));
-    font.setPixelSize(pixel_size);
-    while (pixel_size > 6 && QFontMetricsF(font).horizontalAdvance(text) > max_w) {
-        --pixel_size;
-        font.setPixelSize(pixel_size);
-    }
-    if (fitted.size() > 256) {
-        fitted.clear();
-    }
-    fitted.insert(key, pixel_size);
-    return font;
-}
-
 struct CardData {
     QPixmap cover;
     QString title;
@@ -159,7 +136,19 @@ void DrawSticker(QPainter& p, const QRectF& rect, const QString& text, const QCo
 /// The cart, after the Cartridges concept: dark (or red) body with a slot on the top rim and an
 /// arrow at the bottom, and a light label with a red header band, the square art and a dark strip
 /// with the program id. Everything scales with the card width.
-QPixmap RenderCard(const CardData& d, qreal w, qreal h, qreal dpr) {
+/// What every card of one size and generation shares: body, slot, arrow, and the empty label
+/// with its header band and id strip. Drawn once per size instead of again for every card.
+QPixmap CardTemplate(bool nx2, qreal w, qreal h, qreal dpr) {
+    static std::mutex mutex;
+    static QHash<QString, QPixmap> templates;
+    const QString key = QStringLiteral("%1|%2|%3|%4").arg(nx2).arg(w).arg(h).arg(dpr);
+    std::scoped_lock lock{mutex};
+    if (const auto found = templates.constFind(key); found != templates.constEnd()) {
+        return *found;
+    }
+    if (templates.size() >= 8) {
+        templates.clear(); // sizes from an earlier icon size or screen
+    }
     const qreal m = CardMargin(w);
     QPixmap pixmap(QSize(static_cast<int>(std::ceil((w + 2 * m) * dpr)),
                          static_cast<int>(std::ceil((h + 2 * m) * dpr))));
@@ -168,9 +157,10 @@ QPixmap RenderCard(const CardData& d, qreal w, qreal h, qreal dpr) {
 
     QPainter p(&pixmap);
     p.setRenderHint(QPainter::Antialiasing, true);
-    p.setRenderHint(QPainter::SmoothPixmapTransform, true);
     p.setRenderHint(QPainter::TextAntialiasing, true);
     p.translate(m, m);
+    CardData d;
+    d.is_nx2 = nx2;
 
     const QColor body_color = d.is_nx2 ? QColor(0xec, 0x2a, 0x35) : QColor(0x3a, 0x3a, 0x3f);
     const QColor ridge_color = d.is_nx2 ? QColor(0xc3, 0x14, 0x1f) : QColor(0x26, 0x26, 0x2a);
@@ -209,54 +199,6 @@ QPixmap RenderCard(const CardData& d, qreal w, qreal h, qreal dpr) {
                             {ax + arrow_w / 2, arrow_top},
                             {ax, arrow_top + arrow_h}});
 
-    // Stickers: play time (yellow) and version (paler) under it, one tilt, poking out on the
-    // right. Placed here so the label title can keep clear of them; drawn last, on top.
-    QFont tag_font = QFontDatabase::systemFont(QFontDatabase::GeneralFont);
-    tag_font.setWeight(QFont::Black);
-    tag_font.setPixelSize(std::max(7, static_cast<int>(w * 0.085)));
-    const QFontMetricsF tag_metrics(tag_font);
-    const qreal tag_h = tag_font.pixelSize() * 1.75;
-    struct Sticker {
-        QString text;
-        QColor fill;
-        QRectF rect;
-    };
-    std::vector<Sticker> stickers;
-    QRectF sticker_bounds;
-    {
-        const std::pair<QString, QColor> tags[] = {{d.play_time, QColor(0xff, 0xd3, 0x6b)},
-                                                   {d.version, QColor(0xff, 0xf3, 0xc9)}};
-        const auto tag_width = [&](const QString& text) {
-            return tag_metrics.horizontalAdvance(text) + tag_font.pixelSize() * 1.4;
-        };
-        // Right edges 7 % past the cart like the concept. The tag font has a floor, so on small
-        // carts the stickers would cover the art: shift them out until they cover at most 26 %
-        // of the cart, keeping their right edges aligned.
-        qreal widest = 0.0;
-        for (const auto& [text, fill] : tags) {
-            if (!text.isEmpty()) {
-                widest = std::max(widest, tag_width(text));
-            }
-        }
-        const qreal right = w * 1.07 + std::max<qreal>(0.0, widest - w * 0.07 - w * 0.26);
-        qreal tag_y = h * 0.17;
-        for (const auto& [text, fill] : tags) {
-            if (text.isEmpty()) {
-                continue;
-            }
-            const qreal tw = tag_width(text);
-            const QRectF rect(right - tw, tag_y, tw, tag_h);
-            stickers.push_back({text, fill, rect});
-            QTransform tilt;
-            tilt.translate(rect.center().x(), rect.center().y());
-            tilt.rotate(StickerTilt);
-            tilt.translate(-rect.center().x(), -rect.center().y());
-            // The shadow sits 12 % lower.
-            sticker_bounds |= tilt.mapRect(rect.adjusted(0, 0, 0, rect.height() * 0.12));
-            tag_y += tag_h + w * 0.035;
-        }
-    }
-
     QPainterPath label_path;
     label_path.addRoundedRect(label, label_r, label_r);
     p.save();
@@ -287,6 +229,87 @@ QPixmap RenderCard(const CardData& d, qreal w, qreal h, qreal dpr) {
         }
     }
 
+    // Id strip, without the id. It starts 1 px up, under the art: where the art and the strip
+    // meet at a fraction of a pixel, the light label showed through as a thin line (most on
+    // tilted cartridges). The art is drawn over that pixel, so the strip doesn't move.
+    const qreal strip_top = header.bottom() + lw;
+    p.fillRect(QRectF(label.left(), strip_top - 1.0, lw, label.bottom() - strip_top + 1.0),
+               QColor(0x16, 0x16, 0x18));
+    p.restore();
+
+    p.end();
+    templates.insert(key, pixmap);
+    return pixmap;
+}
+
+QPixmap RenderCard(const CardData& d, qreal w, qreal h, qreal dpr) {
+    QPixmap pixmap = CardTemplate(d.is_nx2, w, h, dpr);
+    // detach: the template stays as it is
+    pixmap = pixmap.copy();
+    pixmap.setDevicePixelRatio(dpr);
+    const qreal m = CardMargin(w);
+
+    QPainter p(&pixmap);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setRenderHint(QPainter::SmoothPixmapTransform, true);
+    p.setRenderHint(QPainter::TextAntialiasing, true);
+    p.translate(m, m);
+
+    // Label geometry: header band, square art, id strip.
+    const qreal side_pad = w * 0.064;
+    const qreal lw = w - 2 * side_pad;
+    const qreal header_h = lw * 0.17;
+    const qreal strip_h = lw * 0.15;
+    const QRectF label(side_pad, w * 0.1, lw, header_h + lw + strip_h);
+    const qreal label_r = std::max(2.0, w * 0.03);
+
+    // Stickers: play time (yellow) and version (paler) under it, one tilt, poking out on the
+    // right; drawn last, on top.
+    QFont tag_font = QFontDatabase::systemFont(QFontDatabase::GeneralFont);
+    tag_font.setWeight(QFont::Black);
+    tag_font.setPixelSize(std::max(7, static_cast<int>(w * 0.085)));
+    const QFontMetricsF tag_metrics(tag_font);
+    const qreal tag_h = tag_font.pixelSize() * 1.75;
+    struct Sticker {
+        QString text;
+        QColor fill;
+        QRectF rect;
+    };
+    std::vector<Sticker> stickers;
+    {
+        const std::pair<QString, QColor> tags[] = {{d.play_time, QColor(0xff, 0xd3, 0x6b)},
+                                                   {d.version, QColor(0xff, 0xf3, 0xc9)}};
+        const auto tag_width = [&](const QString& text) {
+            return tag_metrics.horizontalAdvance(text) + tag_font.pixelSize() * 1.4;
+        };
+        // Right edges 7 % past the cart like the concept. The tag font has a floor, so on small
+        // carts the stickers would cover the art: shift them out until they cover at most 26 %
+        // of the cart, keeping their right edges aligned.
+        qreal widest = 0.0;
+        for (const auto& [text, fill] : tags) {
+            if (!text.isEmpty()) {
+                widest = std::max(widest, tag_width(text));
+            }
+        }
+        const qreal right = w * 1.07 + std::max<qreal>(0.0, widest - w * 0.07 - w * 0.26);
+        qreal tag_y = h * 0.17;
+        for (const auto& [text, fill] : tags) {
+            if (text.isEmpty()) {
+                continue;
+            }
+            const qreal tw = tag_width(text);
+            const QRectF rect(right - tw, tag_y, tw, tag_h);
+            stickers.push_back({text, fill, rect});
+            tag_y += tag_h + w * 0.035;
+        }
+    }
+
+    QPainterPath label_path;
+    label_path.addRoundedRect(label, label_r, label_r);
+    p.save();
+    p.setClipPath(label_path);
+    const QRectF header(label.left(), label.top(), lw, header_h);
+
     // Square art, cropped to fill.
     const QRectF art(label.left(), header.bottom(), lw, lw);
     if (!d.cover.isNull()) {
@@ -304,32 +327,32 @@ QPixmap RenderCard(const CardData& d, qreal w, qreal h, qreal dpr) {
         QFont font = QFontDatabase::systemFont(QFontDatabase::GeneralFont);
         font.setBold(true);
         font.setPixelSize(std::max(7, static_cast<int>(lw * 0.1)));
-        // The title printed on the label (S4: two lines, word wrap only), kept clear of the
-        // stickers: below them, or beside them when there is no room below.
-        QRectF text_box = art.adjusted(lw * 0.08, lw * 0.08, -lw * 0.08, -lw * 0.08);
-        const QRectF keep_clear = sticker_bounds.adjusted(-lw * 0.03, -lw * 0.03, 0, lw * 0.03);
-        if (!keep_clear.isEmpty() && keep_clear.intersects(text_box)) {
-            const qreal line = QFontMetricsF(font).lineSpacing();
-            if (text_box.bottom() - keep_clear.bottom() >= line * 2) {
-                text_box.setTop(keep_clear.bottom());
-            } else {
-                text_box.setRight(std::max(text_box.left() + line, keep_clear.left()));
-            }
-        }
+        // The title printed on the label (S4: two lines, word wrap only). It stays where it is
+        // when the cartridge is selected: the stickers sit on top of it like real stickers.
+        const QRectF text_box = art.adjusted(lw * 0.08, lw * 0.08, -lw * 0.08, -lw * 0.08);
         LibraryStyleContext::PaintName(&p, text_box.toRect(), d.title, QColor(0xed, 0xed, 0xee),
                                        font, Qt::AlignCenter, 2, 0);
     }
 
-    // Id strip.
+    // Id on the strip.
     const QRectF strip(label.left(), art.bottom(), lw, label.bottom() - art.bottom());
-    p.fillRect(strip, QColor(0x16, 0x16, 0x18));
-    if (!d.id_text.isEmpty() && strip.height() >= 6) {
+    if (!d.id_text.isEmpty() && strip.height() >= 2) {
+        // Laid out at a normal size and scaled to the strip: a font size floor let the id run
+        // past the strip on small cartridges (and hid it below 6 px).
         QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
         mono.setLetterSpacing(QFont::PercentageSpacing, 108);
-        mono = FitFont(mono, d.id_text, strip.width() * 0.86, strip.height() * 0.5);
+        mono.setPixelSize(20);
+        const QFontMetricsF fm(mono);
+        const qreal advance = std::max(1.0, fm.horizontalAdvance(d.id_text));
+        const qreal k = std::min(strip.width() * 0.86 / advance, strip.height() * 0.5 / 20.0);
+        p.save();
+        p.translate(strip.center());
+        p.scale(k, k);
         p.setFont(mono);
         p.setPen(QColor(0xed, 0xed, 0xee));
-        p.drawText(strip, Qt::AlignCenter, d.id_text);
+        p.drawText(QRectF(-advance / 2 - 4, -fm.height() / 2, advance + 8, fm.height()),
+                   Qt::AlignCenter, d.id_text);
+        p.restore();
     }
     p.restore();
 
@@ -350,7 +373,7 @@ QPixmap RenderCard(const CardData& d, qreal w, qreal h, qreal dpr) {
 } // namespace
 
 CartridgesStyle::CartridgesStyle(QWidget* parent)
-    : LibraryStyleView{parent}, card_cache_{64 * 1024 * 1024} {
+    : LibraryStyleView{parent}, card_cache_{64 * 1024 * 1024}, tilted_cache_{64 * 1024 * 1024} {
     setObjectName(QStringLiteral("cartridgesStyleView"));
     setFocusPolicy(Qt::StrongFocus);
     setAttribute(Qt::WA_OpaquePaintEvent, true);
@@ -372,6 +395,7 @@ void CartridgesStyle::SetModel(QAbstractItemModel* model) {
     current_row_ = -1;
     entries_.clear();
     card_cache_.clear();
+    tilted_cache_.clear();
     if (model_) {
         // Structural changes rebuild the flat list (deferred, so a burst of inserts costs one
         // rebuild). Data changes only repaint: the card cache key covers cover, title and info.
@@ -817,6 +841,44 @@ void CartridgesStyle::paintEvent([[maybe_unused]] QPaintEvent* event) {
         }
         const QPixmap pixmap = CardPixmap(index, m, dpr, is_selected);
         const Placement place = Place(row, m, is_selected);
+        if (!is_selected && place.angle != 0.0) {
+            // Around the cartridge's centre: its shadow and image, turned by its angle.
+            QTransform local;
+            local.rotate(place.angle);
+            local.translate(-m.card_w / 2, -m.card_h / 2);
+            const QRectF source(-margin, -margin, m.card_w + 2 * margin,
+                                m.card_h + 2 * margin + 3);
+            const QRectF bounds = local.mapRect(source).adjusted(-2, -2, 2, 2);
+            const QString key = QStringLiteral("%1|%2|%3")
+                                    .arg(pixmap.cacheKey())
+                                    .arg(place.angle)
+                                    .arg(dpr);
+            QPixmap* tilted = tilted_cache_.object(key);
+            if (tilted == nullptr) {
+                QPixmap pm(QSize(static_cast<int>(std::ceil(bounds.width() * dpr)),
+                                 static_cast<int>(std::ceil(bounds.height() * dpr))));
+                pm.setDevicePixelRatio(dpr);
+                pm.fill(Qt::transparent);
+                QPainter tp(&pm);
+                tp.setRenderHint(QPainter::Antialiasing, true);
+                tp.setRenderHint(QPainter::SmoothPixmapTransform, true);
+                tp.translate(-bounds.topLeft());
+                tp.setTransform(local, true);
+                tp.setPen(Qt::NoPen);
+                tp.setBrush(QColor(0, 0, 0, 45));
+                tp.drawRoundedRect(QRectF(0, 3, m.card_w, m.card_h), m.card_w * 0.085,
+                                   m.card_w * 0.085);
+                tp.drawPixmap(QPointF(-margin, -margin), pixmap);
+                tp.end();
+                tilted = new QPixmap(pm);
+                tilted_cache_.insert(key, tilted,
+                                     std::max(1, static_cast<int>(pm.width() * pm.height() * 4)));
+            }
+            painter.drawPixmap(QPointF(std::round(place.center.x() + bounds.left()),
+                                       std::round(place.center.y() + bounds.top())),
+                               *tilted);
+            return;
+        }
         painter.save();
         painter.setTransform(place.transform, true);
         painter.setPen(Qt::NoPen);

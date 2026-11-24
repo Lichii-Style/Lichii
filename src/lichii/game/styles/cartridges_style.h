@@ -99,6 +99,9 @@ private:
     bool scattered_ = false;
 
     mutable QCache<QString, QPixmap> card_cache_;
+    /// Unselected tilted cartridges (shadow and image), rotated once: drawing rotated pixmaps
+    /// with smoothing for every cartridge on every paint made the tilted look slow.
+    mutable QCache<QString, QPixmap> tilted_cache_;
 };
 
 } // namespace LibraryStyles

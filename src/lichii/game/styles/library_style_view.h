@@ -51,6 +51,8 @@ signals:
     void LaunchRequested(const QModelIndex& index);
     void ContextMenuRequested(const QModelIndex& index, const QPoint& global_pos);
     void CurrentChanged(const QModelIndex& index);
+    /// The profile picture was clicked (Home Row, Channels): pick the active profile.
+    void ProfileSelectRequested();
 };
 
 using Factory = LibraryStyleView* (*)(QWidget* parent);

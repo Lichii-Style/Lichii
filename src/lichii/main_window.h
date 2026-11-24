@@ -404,6 +404,8 @@ private slots:
     void OnMenuInstallToNAND();
     void OnMenuRecentFile();
     void OnConfigure();
+    /// Configure on the Profiles tab.
+    void OnConfigureProfiles();
     void OnConfigureTas();
     void OnDecreaseVolume();
     void OnIncreaseVolume();
@@ -600,6 +602,8 @@ private:
     /// Set when a direct launch skipped the first-run library style chooser; the choice is asked
     /// once the interactive library session comes back.
     bool deferred_library_style_prompt = false;
+    /// OnConfigure opens on the Profiles tab once.
+    bool configure_profiles_next = false;
     QTimer shutdown_timer;
     QTimer emu_terminate_timer;
     bool shutdown_game_in_progress{};

@@ -34,7 +34,6 @@ public:
     void SetCurrentIndex(const QModelIndex& index) override;
     void SetShowNames(bool show) override;
     void SetShowInfo(bool show) override;
-    QString CycleOption() override;
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -88,7 +87,6 @@ private:
     bool rebuild_pending = false;
     bool show_names = true;
     bool show_info = false;
-    bool large_shelf = false;
     /// Horizontal scroll of the shelf, in pixels.
     qreal offset = 0;
     QVariantAnimation* scroll_animation = nullptr;

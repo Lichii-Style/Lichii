@@ -52,6 +52,8 @@ private:
         int tile_w = 1;
         int tile_h = 1;
         int gap = 8;
+        /// Between columns: wider than between rows, so the channels don't crowd side by side.
+        int col_gap = 14;
         int name_h = 0;
         int rows = 1;
         int cols = 1;
@@ -88,7 +90,9 @@ private:
 
     /// Cover art cropped to `size` with rounded corners (or the default art), cached.
     QPixmap CoverFor(const QModelIndex& index, const QSize& size, qreal radius, qreal dpr);
+    /// A tile with its name and info: unselected ones from tile_cache, the selected one live.
     void PaintTile(QPainter& painter, const Layout& layout, int row, bool selected);
+    void PaintTileLive(QPainter& painter, const Layout& layout, int row, bool selected);
     void PaintDock(QPainter& painter, const Layout& layout);
 
     QPointer<QAbstractItemModel> model;
@@ -105,10 +109,15 @@ private:
     std::array<QPixmap, 2> glow_pixmaps;
     QString glow_key;
     QCache<QString, QPixmap> cover_cache{48 * 1024}; // cost in KiB
+    /// Unselected tiles drawn once (frame, shadow, cover, name, info): a page slide only copies
+    /// them, instead of drawing every tile of two pages on each frame.
+    QCache<QString, QPixmap> tile_cache{64 * 1024}; // cost in KiB
     qreal scroll = 0; // horizontal, in px; pages sit side by side
     QVariantAnimation page_anim;
     int wheel_rest = 0;
     QPixmap background;
+    /// The left dock circle (the profile picture): a click there picks the profile.
+    QRectF profile_rect;
     QSize background_size;
     qreal background_dpr = 0;
     QRgb background_base = 0;

@@ -152,6 +152,7 @@ void ChannelGridStyle::SetModel(QAbstractItemModel* new_model) {
     entries.clear();
     scroll = 0;
     cover_cache.clear();
+    tile_cache.clear();
     if (model) {
         const auto rebuild = [this] { ScheduleRebuild(); };
         connect(model, &QAbstractItemModel::modelReset, this, rebuild);
@@ -164,6 +165,7 @@ void ChannelGridStyle::SetModel(QAbstractItemModel* new_model) {
                 [this](const QModelIndex&, const QModelIndex&, const QList<int>& roles) {
                     if (ArtRolesChanged(roles)) {
                         cover_cache.clear();
+    tile_cache.clear();
                     }
                     update();
                 });
@@ -289,11 +291,12 @@ ChannelGridStyle::Layout ChannelGridStyle::ComputeLayout() const {
         l.tile_w = std::max(32, w - 2 * peek);
         l.tile_h = l.tile_w * 10 / 16;
     }
-    l.cols = std::max(1, (w - 2 * peek + l.gap) / (l.tile_w + l.gap));
+    l.col_gap = std::max(14, l.tile_w / 9);
+    l.cols = std::max(1, (w - 2 * peek + l.col_gap) / (l.tile_w + l.col_gap));
     l.per_page = l.rows * l.cols;
     l.pages = std::max(1, (RowCount() + l.per_page - 1) / l.per_page);
-    l.page_w = l.cols * (l.tile_w + l.gap);
-    l.left = (w - (l.page_w - l.gap)) / 2;
+    l.page_w = l.cols * (l.tile_w + l.col_gap);
+    l.left = (w - (l.page_w - l.col_gap)) / 2;
     const int block_h = l.rows * (l.tile_h + l.name_h + l.gap) - l.gap;
     l.top += std::max(0, (grid_h - block_h) / 2);
     return l;
@@ -321,7 +324,7 @@ QRect ChannelGridStyle::TileRect(const Layout& l, int row) const {
     const int k = row % l.per_page;
     const int line = k / l.cols;
     const int col = k % l.cols;
-    const int x = l.left + page * l.page_w + col * (l.tile_w + l.gap) -
+    const int x = l.left + page * l.page_w + col * (l.tile_w + l.col_gap) -
                   static_cast<int>(std::lround(scroll));
     return QRect(x, l.top + line * (l.tile_h + l.name_h + l.gap), l.tile_w, l.tile_h);
 }
@@ -348,7 +351,7 @@ int ChannelGridStyle::RowAt(const QPoint& pos) const {
         return -1;
     }
     for (int row = 0; row < RowCount(); ++row) {
-        const QRect hit = TileRect(l, row).adjusted(-l.gap / 2, -l.gap / 2, l.gap / 2,
+        const QRect hit = TileRect(l, row).adjusted(-l.col_gap / 2, -l.gap / 2, l.col_gap / 2,
                                                     l.name_h + l.gap / 2);
         if (hit.contains(pos)) {
             return row;
@@ -427,6 +430,7 @@ void ChannelGridStyle::SetCurrentRow(int row, bool notify, bool animate) {
 void ChannelGridStyle::resizeEvent(QResizeEvent* event) {
     LibraryStyleView::resizeEvent(event);
     cover_cache.clear();
+    tile_cache.clear();
     if (CurrentRow() >= 0) {
         EnsureVisible(CurrentRow(), false);
     }
@@ -520,6 +524,11 @@ void ChannelGridStyle::contextMenuEvent(QContextMenuEvent* event) {
 
 void ChannelGridStyle::mousePressEvent(QMouseEvent* event) {
     setFocus(Qt::MouseFocusReason);
+    if (event->button() == Qt::LeftButton && profile_rect.contains(event->position())) {
+        emit ProfileSelectRequested();
+        event->accept();
+        return;
+    }
     if (event->button() == Qt::LeftButton) {
         const Layout l = ComputeLayout();
         const int page = ShownPage(l);
@@ -572,7 +581,7 @@ void ChannelGridStyle::wheelEvent(QWheelEvent* event) {
 QPixmap ChannelGridStyle::CoverFor(const QModelIndex& index, const QSize& size, qreal radius,
                                    qreal dpr) {
     const QPalette pal = palette();
-    const QColor accent = pal.highlight().color();
+    // The window colour is part of the key: the placeholder follows day and night.
     const QString key = QStringLiteral("%1|%2|%3x%4|%5|%6|%7")
                             .arg(index.data(GameListItemPath::FullPathRole).toString())
                             .arg(index.data(GameListItemPath::ProgramIdRole).toULongLong())
@@ -580,7 +589,7 @@ QPixmap ChannelGridStyle::CoverFor(const QModelIndex& index, const QSize& size, 
                             .arg(size.height())
                             .arg(radius)
                             .arg(dpr)
-                            .arg(accent.rgba());
+                            .arg(pal.window().color().rgba());
     if (const QPixmap* cached = cover_cache.object(key)) {
         return *cached;
     }
@@ -611,21 +620,8 @@ QPixmap ChannelGridStyle::CoverFor(const QModelIndex& index, const QSize& size, 
                             (scaled.height() - device.height()) / 2.0, device.width(),
                             device.height()));
     } else {
-        // Default art: a gradient from the palette with the initial of the title.
-        const bool dark = IsDark(pal);
-        QLinearGradient bg(rect.topLeft(), rect.bottomRight());
-        bg.setColorAt(0.0, accent.lighter(dark ? 115 : 135));
-        bg.setColorAt(1.0, accent.darker(dark ? 170 : 125));
-        p.fillRect(rect, bg);
-        const QString title = TitleOf(index);
-        QFont f = font();
-        f.setBold(true);
-        f.setPixelSize(std::max(12, int(rect.height() * 0.42)));
-        p.setFont(f);
-        QColor ink = pal.highlightedText().color();
-        ink.setAlpha(210);
-        p.setPen(ink);
-        p.drawText(rect, Qt::AlignCenter, title.isEmpty() ? QString{} : title.left(1).toUpper());
+        // No art: the coloured placeholder with initials every other style uses.
+        LibraryStyleContext::PaintPlaceholderArt(&p, rect.toAlignedRect(), TitleOf(index), pal);
     }
     p.end();
     const int cost = std::max(1, device.width() * device.height() * 4 / 1024);
@@ -634,6 +630,48 @@ QPixmap ChannelGridStyle::CoverFor(const QModelIndex& index, const QSize& size, 
 }
 
 void ChannelGridStyle::PaintTile(QPainter& p, const Layout& l, int row, bool selected) {
+    if (selected) {
+        PaintTileLive(p, l, row, true);
+        return;
+    }
+    const QModelIndex index = IndexForRow(row);
+    const QRect cell = TileRect(l, row);
+    const qreal dpr = devicePixelRatioF();
+    const QPalette pal = palette();
+    const GameInfo info = IsGame(index) ? LibraryStyleContext::Info(index) : GameInfo{};
+    const QString key = QStringList{index.data(GameListItemPath::FullPathRole).toString(),
+                                    TitleOf(index),
+                                    show_info ? info.info_line : QString{},
+                                    QString::number(cell.width()),
+                                    QString::number(cell.height()),
+                                    QString::number(l.name_h),
+                                    QString::number(show_names ? 1 : 0),
+                                    QString::number(show_info ? 1 : 0),
+                                    QString::number(pal.window().color().rgba()),
+                                    QString::number(dpr)}
+                            .join(QLatin1Char('|'));
+    constexpr int pad = 4; // the drop shadow sits 3 px under the frame
+    QPixmap* cached = tile_cache.object(key);
+    if (cached == nullptr) {
+        const QSize size(cell.width() + 2 * pad, cell.height() + l.name_h + 2 * pad);
+        QPixmap pm(QSize(static_cast<int>(std::ceil(size.width() * dpr)),
+                         static_cast<int>(std::ceil(size.height() * dpr))));
+        pm.setDevicePixelRatio(dpr);
+        pm.fill(Qt::transparent);
+        QPainter tp(&pm);
+        tp.setRenderHint(QPainter::Antialiasing, true);
+        tp.setRenderHint(QPainter::SmoothPixmapTransform, true);
+        tp.setRenderHint(QPainter::TextAntialiasing, true);
+        tp.translate(QPointF(pad - cell.left(), pad - cell.top()));
+        PaintTileLive(tp, l, row, false);
+        tp.end();
+        cached = new QPixmap(pm);
+        tile_cache.insert(key, cached, std::max(1, pm.width() * pm.height() * 4 / 1024));
+    }
+    p.drawPixmap(QPoint(cell.left() - pad, cell.top() - pad), *cached);
+}
+
+void ChannelGridStyle::PaintTileLive(QPainter& p, const Layout& l, int row, bool selected) {
     const QModelIndex index = IndexForRow(row);
     const QPalette pal = palette();
     const bool dark = IsDark(pal);
@@ -836,7 +874,8 @@ void ChannelGridStyle::PaintDock(QPainter& p, const Layout& l) {
         }
     }
 
-    // Round buttons in the corners: Lichii on the left, the game count on the right.
+    // Round buttons in the corners: the profile picture on the left, the game count on the
+    // right.
     const qreal radius = std::clamp(l.dock_h * 0.36, 26.0, 60.0);
     const qreal cy = top + l.dock_h * 0.56;
     const qreal side = std::max(14.0, w * 0.035) + radius;
@@ -855,11 +894,23 @@ void ChannelGridStyle::PaintDock(QPainter& p, const Layout& l) {
     };
     {
         const QRectF r = circle(side);
-        static const QPixmap logo(QStringLiteral(":/icons/default/256x256/lichii.png"));
-        if (!logo.isNull()) {
-            const qreal s = radius * 1.15;
-            p.drawPixmap(QRectF(r.center().x() - s / 2, r.center().y() - s / 2, s, s), logo,
-                         QRectF(logo.rect()));
+        profile_rect = r;
+        const QPixmap avatar = LibraryStyleContext::UserAvatar();
+        if (!avatar.isNull()) {
+            // Inside the accent ring, cropped round to fill.
+            const QRectF inner = r.adjusted(radius * 0.1, radius * 0.1, -radius * 0.1,
+                                            -radius * 0.1);
+            p.save();
+            QPainterPath clip;
+            clip.addEllipse(inner);
+            p.setClipPath(clip);
+            const qreal scale = std::max(inner.width() / avatar.width(),
+                                         inner.height() / avatar.height());
+            const QSizeF fitted(avatar.width() * scale, avatar.height() * scale);
+            p.drawPixmap(QRectF(inner.center() - QPointF(fitted.width(), fitted.height()) / 2,
+                                fitted),
+                         avatar, QRectF(avatar.rect()));
+            p.restore();
         }
     }
     {
@@ -898,7 +949,7 @@ void ChannelGridStyle::PaintDock(QPainter& p, const Layout& l) {
     hint_font.setBold(true);
     hint_font.setPixelSize(std::clamp(l.dock_h * 10 / 100, 10, 13));
     const qreal hint_r = hint_font.pixelSize() * 0.75;
-    const auto hints = LibraryStyleContext::StandardHints();
+    const auto hints = LibraryStyleContext::StandardHints({}, true);
     const qreal hints_w = LibraryStyleContext::HintsWidth(hints, hint_font, hint_r);
     const bool show_hints = hints_w <= inner_w;
     const int date_h = QFontMetrics(df).height();

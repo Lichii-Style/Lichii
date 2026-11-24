@@ -189,12 +189,6 @@ void RisStyle::SetShowInfo(bool show) {
     update();
 }
 
-QString RisStyle::CycleOption() {
-    large_shelf = !large_shelf;
-    Relayout();
-    return large_shelf ? tr("Shelf: large covers") : tr("Shelf: compact covers");
-}
-
 void RisStyle::Rebuild() {
     rebuild_pending = false;
     const QPersistentModelIndex previous = CurrentIndex();
@@ -266,9 +260,8 @@ RisStyle::Colors RisStyle::Scheme() const {
 }
 
 int RisStyle::TileSize() const {
-    // Large shelf: the icon size every style uses; small shelf: three quarters of it.
-    const int art = LibraryStyleContext::ArtSize();
-    return large_shelf ? art : art * 3 / 4;
+    // Three quarters of the icon size every style uses (ZL/ZR change it).
+    return LibraryStyleContext::ArtSize() * 3 / 4;
 }
 
 int RisStyle::NameHeight() const {
@@ -730,8 +723,11 @@ void RisStyle::PaintFooter(QPainter& painter, const Colors& colors) {
                              .arg(current + 1, 2, 10, QLatin1Char('0'))
                              .arg(entries.size(), 2, 10, QLatin1Char('0')));
     }
-    const QStringList hints{tr("A Play"), tr("B Names"), tr("Y Details"), tr("X Shelf size"),
-                            tr("LB RB Style")};
+    // The shared hints (same buttons and order as every style), in the RIS text look.
+    QStringList hints;
+    for (const ButtonHint& hint : LibraryStyleContext::StandardHints()) {
+        hints << hint.glyphs.join(QLatin1Char(' ')) + QLatin1Char(' ') + hint.label;
+    }
     painter.setPen(colors.muted);
     painter.drawText(footer.adjusted(0, 0, -Margin, 0), Qt::AlignRight | Qt::AlignVCenter,
                      hints.join(QStringLiteral("    ")).toUpper());

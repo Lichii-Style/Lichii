@@ -168,6 +168,9 @@ void ControllerNavigation::ControllerUpdateButton() {
             TriggerButton(Settings::NativeButton::Y, Qt::Key_Y);
             TriggerButton(Settings::NativeButton::L, Qt::Key_BracketLeft);
             TriggerButton(Settings::NativeButton::R, Qt::Key_BracketRight);
+            TriggerButton(Settings::NativeButton::ZL, Qt::Key_ZoomOut);
+            TriggerButton(Settings::NativeButton::ZR, Qt::Key_ZoomIn);
+            TriggerButton(Settings::NativeButton::Minus, Qt::Key_Launch0);
         }
         break;
     case Core::HID::NpadStyleIndex::JoyconLeft:

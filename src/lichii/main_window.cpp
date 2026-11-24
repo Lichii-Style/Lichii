@@ -1920,6 +1920,51 @@ void MainWindow::ConnectWidgetEvents() {
     connect(game_list, &GameList::CycleStyleRequested, this, &MainWindow::CycleLibraryStyle);
     connect(game_list, &GameList::StyleOptionChanged, this,
             [this](const QString& label) { statusBar()->showMessage(label, 2000); });
+    connect(game_list, &GameList::ProfileSelectRequested, this, [this] {
+        if (emulation_running) {
+            return;
+        }
+        // With a single profile the selection dialog skips itself: open the profile manager
+        // instead, where profiles are added and edited.
+        if (QtCommon::system->GetProfileManager().GetUserCount() <= 1) {
+            OnConfigureProfiles();
+            return;
+        }
+        const Core::Frontend::ProfileSelectParameters parameters{
+            .mode = Service::AM::Frontend::UiMode::UserSelector,
+            .invalid_uid_list = {},
+            .display_options = {},
+            .purpose = Service::AM::Frontend::UserSelectionPurpose::General,
+        };
+        if (SelectAndSetCurrentUser(parameters)) {
+            config->SaveAllValues();
+            game_list->update();
+            for (QWidget* child : game_list->findChildren<QWidget*>()) {
+                child->update(); // the styles show the profile picture
+            }
+        }
+    });
+    connect(game_list, &GameList::IconSizeStepRequested, this, [this](int step) {
+        // Through the View > Game Icon Size entries, so a step does what picking one does.
+        // "None" (index 0) stays a menu choice: a step stops at the smallest icons.
+        const u32 current = UISettings::CurrentGameIconSize().GetValue();
+        int index = 1;
+        for (size_t i = 1; i < default_game_icon_sizes.size(); ++i) {
+            if (default_game_icon_sizes[i].first <= current) {
+                index = static_cast<int>(i);
+            }
+        }
+        const int next = std::clamp(index + step, 1,
+                                    static_cast<int>(default_game_icon_sizes.size()) - 1);
+        const QList<QAction*> actions = game_size_actions->actions();
+        if (next == index || next >= actions.size()) {
+            return;
+        }
+        actions.at(next)->trigger();
+        statusBar()->showMessage(tr("Game Icon Size: %1").arg(GetTranslatedGameIconSize(
+                                     static_cast<size_t>(next))),
+                                 2000);
+    });
     connect(game_list, &GameList::OpenDirectory, this, &MainWindow::OnGameListOpenDirectory);
     connect(game_list, &GameList::OpenFolderRequested, this, &MainWindow::OnGameListOpenFolder);
     connect(game_list, &GameList::OpenTransferableShaderCacheRequested, this,
@@ -2109,11 +2154,13 @@ void MainWindow::ConnectMenuEvents() {
 
                 game_list->UpdateIconSizes();
                 // Only the list view stores icons at the chosen size; the grid, the carousel and
-                // the library styles scale the card art when they paint. A rescan here would also
-                // rebuild the content providers on this thread and lock the library until it ends.
+                // the library styles scale the card art when they paint. The list's icons are
+                // scaled from the art its rows keep (when the list is shown, or once it is shown
+                // again): a rescan here rebuilt the content providers on this thread and locked
+                // the library until it ended.
                 if (UISettings::values.game_list_mode.GetValue() ==
                     Settings::GameListMode::TreeView) {
-                    game_list->RefreshGameDirectory();
+                    game_list->ResizeListIcons();
                 }
             }
         });
@@ -4781,6 +4828,11 @@ void MainWindow::ToggleShowGameName() {
     game_list->UpdateIconSizes();
 }
 
+void MainWindow::OnConfigureProfiles() {
+    configure_profiles_next = true;
+    OnConfigure();
+}
+
 void MainWindow::OnConfigure() {
     const auto old_theme = UISettings::values.theme;
     const auto old_library_style = UISettings::values.game_library_style.GetValue();
@@ -4804,6 +4856,10 @@ void MainWindow::OnConfigure() {
     ConfigureDialog configure_dialog(this, hotkey_registry, input_subsystem.get(),
                                      vk_device_records, *QtCommon::system,
                                      !multiplayer_state->IsHostingPublicRoom());
+    if (configure_profiles_next) {
+        configure_profiles_next = false;
+        configure_dialog.ShowProfiles();
+    }
     connect(&configure_dialog, &ConfigureDialog::LanguageChanged, this,
             &MainWindow::OnLanguageChanged);
     connect(&configure_dialog, &ConfigureDialog::ExternalContentDirsChanged, this,

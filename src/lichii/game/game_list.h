@@ -116,6 +116,8 @@ public slots:
     void OnCustomArtworkChanged(u64 program_id);
     void RefreshExternalContent();
     void UpdateIconSizes();
+    /// The list's icons at the current size, scaled from the art the rows keep (no scan).
+    void ResizeListIcons();
     void RefreshThemeIcons();
     void OnPopulate();
 
@@ -162,6 +164,10 @@ signals:
     void ToggleInfoRequested();
     void CycleStyleRequested(int step);
     void StyleOptionChanged(const QString& label);
+    /// One icon size step larger (+1) or smaller (-1): Ctrl+wheel, Ctrl+plus/minus, ZR/ZL.
+    void IconSizeStepRequested(int step);
+    /// Pick the active profile (a style's profile picture, or the controller's minus button).
+    void ProfileSelectRequested();
 
 private slots:
     void OnTextChanged(const QString& new_text);
@@ -256,6 +262,12 @@ private:
     QString style_selected_path;
     bool restoring_style_selection = false;
     QString style_search;
+    /// The size the list's icons were last scaled to (they are stored scaled, unlike the cards).
+    u32 list_icon_size = 0;
+    /// Ctrl+wheel delta not yet turned into an icon size step (touchpads scroll in small steps).
+    int zoom_wheel_delta = 0;
+    /// Ctrl+wheel and Ctrl+plus/minus: one icon size step. True when the event was one of them.
+    bool HandleIconSizeEvent(QEvent* event);
     QElapsedTimer style_search_clock;
     struct ArtworkLookup {
         u64 program_id;

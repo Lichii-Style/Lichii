@@ -172,7 +172,11 @@ public:
 
     /// The library buttons: A Play, B Names, X `option` (when the style has one), Y Info,
     /// L R Style. Letters are Switch positions, like the controller mapping.
-    static std::vector<ButtonHint> StandardHints(const QString& option = {});
+    /// A, B, the style's X option, Y, ZL/ZR icon size and L/R; `profile` adds minus: Profile last.
+    static std::vector<ButtonHint> StandardHints(const QString& option = {}, bool profile = false);
+    /// Picture of the active profile, or the default account picture; reloaded only when the
+    /// profile or its image file changes.
+    static QPixmap UserAvatar();
     /// True for the shoulder buttons (L, R, LB, RB, ZL, ZR): drawn as rounded bars, not discs.
     static bool IsShoulderGlyph(const QString& glyph);
     /// Width of one button glyph: a disc of `radius`, or a wider bar for a shoulder button.

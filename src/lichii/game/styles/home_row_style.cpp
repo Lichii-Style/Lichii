@@ -341,44 +341,6 @@ QPixmap HomeRowStyle::CoverPixmap(int row, int side) {
     return result;
 }
 
-namespace {
-
-/// Picture of the active profile, or the default account picture; reloaded only when the
-/// profile or its image file changes.
-QPixmap UserAvatar() {
-    static QPixmap cached;
-    static QString cached_key;
-    QString path;
-    if (QtCommon::system) {
-        const auto uuid = QtCommon::system->GetProfileManager().GetUser(
-            static_cast<std::size_t>(Settings::values.current_user.GetValue()));
-        if (uuid.has_value()) {
-            const auto file = Common::FS::GetEdenPath(Common::FS::EdenPath::NANDDir) /
-                              fmt::format("system/save/8000000000000010/su/avators/{}.jpg",
-                                          uuid->FormattedString());
-            path = QString::fromStdString(Common::FS::PathToUTF8String(file));
-        }
-    }
-    const QFileInfo info(path);
-    const QString key =
-        path + QLatin1Char('|') + QString::number(info.exists() ? info.lastModified().toSecsSinceEpoch() : 0);
-    if (!cached.isNull() && key == cached_key) {
-        return cached;
-    }
-    QPixmap pixmap;
-    if (!path.isEmpty() && info.exists()) {
-        pixmap.load(path);
-    }
-    if (pixmap.isNull()) {
-        pixmap.loadFromData(Core::Constants::ACCOUNT_BACKUP_JPEG.data(),
-                            static_cast<uint>(Core::Constants::ACCOUNT_BACKUP_JPEG.size()));
-    }
-    cached = pixmap;
-    cached_key = key;
-    return cached;
-}
-
-} // namespace
 
 void HomeRowStyle::paintEvent(QPaintEvent* event) {
     Q_UNUSED(event);
@@ -404,7 +366,7 @@ void HomeRowStyle::paintEvent(QPaintEvent* event) {
         QColor line = pal.color(QPalette::WindowText);
         line.setAlpha(45);
         painter.fillRect(QRect(side, line_y, width() - 2 * side, 1), line);
-        const auto hints = LibraryStyleContext::StandardHints();
+        const auto hints = LibraryStyleContext::StandardHints({}, true);
         const qreal hints_w = LibraryStyleContext::HintsWidth(hints, hint_font, radius);
         if (hints_w <= width() - 2 * side - 16) {
             LibraryStyleContext::PaintHints(&painter, hints, width() - side - 8 - hints_w,
@@ -419,9 +381,10 @@ void HomeRowStyle::paintEvent(QPaintEvent* event) {
 
     // Profile picture, top left.
     {
-        const QPixmap avatar = UserAvatar();
+        const QPixmap avatar = LibraryStyleContext::UserAvatar();
         const double d = std::clamp(m.side / 3.6, 36.0, 72.0);
         const QRectF circle(m.side / 4.0, m.side / 9.0, d, d);
+        m_avatar_rect = circle;
         if (!avatar.isNull()) {
             painter.save();
             QPainterPath clip;
@@ -597,6 +560,11 @@ void HomeRowStyle::keyPressEvent(QKeyEvent* event) {
 
 void HomeRowStyle::mousePressEvent(QMouseEvent* event) {
     setFocus();
+    if (event->button() == Qt::LeftButton && m_avatar_rect.contains(event->position())) {
+        emit ProfileSelectRequested();
+        event->accept();
+        return;
+    }
     const int row = RowAt(event->position().toPoint());
     if (row < 0) {
         event->ignore();

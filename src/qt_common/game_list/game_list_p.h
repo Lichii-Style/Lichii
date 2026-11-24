@@ -229,6 +229,21 @@ public:
         SetPicture(this, picture_data);
     }
 
+    /// The list icon at another size, from the card art the item already keeps: a size change
+    /// in the list no longer needs a scan of the library.
+    static void ResizePicture(QStandardItem* item, u32 size) {
+        if (size == 0) {
+            item->setData(QPixmap{}, Qt::DecorationRole);
+            return;
+        }
+        const QPixmap card = item->data(CardIconRole).value<QPixmap>();
+        const QPixmap picture =
+            item->data(HasIconRole).toBool() && !card.isNull()
+                ? card.scaled(size, size, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+                : GetDefaultIcon(size);
+        item->setData(RoundedIcon(picture), Qt::DecorationRole);
+    }
+
     /// Shows an image file as a game's picture, or the default art when it is not an image.
     static void SetPicture(QStandardItem* item, const std::vector<u8>& picture_data) {
         const u32 size = UISettings::CurrentGameIconSize().GetValue();

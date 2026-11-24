@@ -18,7 +18,8 @@
 namespace LibraryStyles {
 
 /// Canvas library style: rounded cover tiles over soft concentric colour arcs.
-/// Concept by inxomnyaa. Only the visible tiles are painted, so large libraries stay smooth.
+/// Based on the "Canvas" ES-DE theme by Siddy212, ported by inxomnyaa. Only the visible tiles
+/// are painted, so large libraries stay smooth.
 class CanvasStyle : public LibraryStyleView {
     Q_OBJECT
 public:

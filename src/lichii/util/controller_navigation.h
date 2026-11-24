@@ -27,7 +27,8 @@ public:
     /// Disables events from the emulated controller
     void UnloadController();
 
-    /// Also report X, Y, L and R (as the X, Y, [ and ] keys), for the game library styles.
+    /// Also report X, Y, L, R, ZL, ZR and minus (as X, Y, [, ], zoom out, zoom in and Launch0),
+    /// for the game library styles, the icon size and the profile.
     void SetLibraryButtonsEnabled(bool enabled) {
         library_buttons = enabled;
     }

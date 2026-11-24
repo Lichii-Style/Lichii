@@ -98,6 +98,9 @@ private:
 
     void PaintBackground(QPainter& painter);
     QPixmap Reflection(const QPixmap& cover);
+    /// The cover with its reflection under it in one pixmap, so a cover in motion takes one
+    /// perspective draw instead of two.
+    QPixmap WithReflection(const QPixmap& cover, qreal side);
     const QPixmap& ShadowFor(qreal side, bool selected);
     void PaintCover(QPainter& painter, const Metrics& metrics, int row, qreal offset);
     void PaintTexts(QPainter& painter, const Metrics& metrics);
@@ -130,6 +133,7 @@ private:
     /// and fade composed once, so a frame only blits one or two pixmaps.
     QHash<int, QPixmap> background_cache_;
     QHash<qint64, QPixmap> reflection_cache_;
+    QHash<qint64, QPixmap> with_reflection_cache_;
     QPixmap shadow_;
     QPixmap shadow_selected_;
     int shadow_side_[2] = {0, 0};

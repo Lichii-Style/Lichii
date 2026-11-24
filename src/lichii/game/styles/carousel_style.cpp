@@ -499,6 +499,9 @@ void CarouselStyle::TrimCaches(int lo, int hi) {
     if (reflection_cache_.size() > 2 * keep_slots) {
         reflection_cache_.clear();
     }
+    if (with_reflection_cache_.size() > 2 * keep_slots) {
+        with_reflection_cache_.clear();
+    }
 }
 
 void CarouselStyle::Prefetch() {
@@ -753,6 +756,33 @@ const QPixmap& CarouselStyle::ShadowFor(qreal side, bool selected) {
     return slot;
 }
 
+QPixmap CarouselStyle::WithReflection(const QPixmap& cover, qreal side) {
+    const qint64 key = cover.cacheKey();
+    if (const auto it = with_reflection_cache_.constFind(key);
+        it != with_reflection_cache_.constEnd()) {
+        return *it;
+    }
+    if (with_reflection_cache_.size() > 48) {
+        with_reflection_cache_.clear();
+    }
+    const qreal dpr = cover.devicePixelRatio();
+    const qreal total = side * (1.0 + kReflectionGap + kReflectionShare);
+    QPixmap out(QSize(static_cast<int>(std::ceil(side * dpr)),
+                      static_cast<int>(std::ceil(total * dpr))));
+    out.setDevicePixelRatio(dpr);
+    out.fill(Qt::transparent);
+    {
+        QPainter p(&out);
+        p.setRenderHint(QPainter::SmoothPixmapTransform, true);
+        p.drawPixmap(QRectF(0, 0, side, side), cover, QRectF(cover.rect()));
+        const QPixmap mirror = Reflection(cover);
+        p.drawPixmap(QRectF(0, side + kReflectionGap * side, side, side * kReflectionShare),
+                     mirror, QRectF(mirror.rect()));
+    }
+    with_reflection_cache_.insert(key, out);
+    return out;
+}
+
 QPixmap CarouselStyle::Reflection(const QPixmap& cover) {
     const qint64 key = cover.cacheKey();
     if (const auto it = reflection_cache_.constFind(key); it != reflection_cache_.constEnd()) {
@@ -871,13 +901,12 @@ void CarouselStyle::PaintCover(QPainter& painter, const Metrics& m, int row, qre
     }
 
     painter.setWorldTransform(transform);
-    painter.drawPixmap(QRectF(0, 0, side, side), pixmap, QRectF(pixmap.rect()));
-
-    // Reflection: the bottom 22 % of the art, mirrored 6 px under the cover, fading out.
+    // The cover and its reflection (the bottom 22 % of the art, mirrored 6 px under the cover,
+    // fading out), prepared together: one perspective draw per cover in motion.
     {
-        const QPixmap mirror = Reflection(pixmap);
-        painter.drawPixmap(QRectF(0, side + kReflectionGap * side, side, side * kReflectionShare),
-                           mirror, QRectF(mirror.rect()));
+        const QPixmap both = WithReflection(pixmap, side);
+        painter.drawPixmap(QRectF(0, 0, side, side * (1.0 + kReflectionGap + kReflectionShare)),
+                           both, QRectF(both.rect()));
     }
 
     if (a < 0.5) {

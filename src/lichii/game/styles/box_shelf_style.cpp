@@ -19,6 +19,8 @@
 #include <QResizeEvent>
 #include <QStringList>
 #include <QTimer>
+#include <QEasingCurve>
+#include <QScopeGuard>
 #include <QTransform>
 #include <QWheelEvent>
 #include <QtMath>
@@ -196,6 +198,11 @@ struct CaseView {
 
 
 BoxShelfStyle::BoxShelfStyle(QWidget* parent) : LibraryStyleView(parent), m_pixmaps(64 * 1024) {
+    m_turn.setStartValue(0.0);
+    m_turn.setEndValue(1.0);
+    m_turn.setDuration(160);
+    m_turn.setEasingCurve(QEasingCurve::OutCubic);
+    connect(&m_turn, &QVariantAnimation::valueChanged, this, [this] { update(); });
     setFocusPolicy(Qt::StrongFocus);
     setAutoFillBackground(false);
     setAttribute(Qt::WA_OpaquePaintEvent, true);
@@ -539,9 +546,16 @@ void BoxShelfStyle::SetCurrentPos(int pos) {
         update();
         return;
     }
+    const int old_pos = CurrentPos();
     m_current = m_entries[static_cast<size_t>(pos)];
     m_current_key = ItemKey(QModelIndex(m_current));
     EnsureVisible(pos);
+    m_turn.stop();
+    if (!m_spines && m_animate_step && old_pos >= 0 && isVisible()) {
+        m_turn_from = old_pos;
+        m_turn_to = pos;
+        m_turn.start();
+    }
     update();
     NotifyCurrent();
 }
@@ -551,6 +565,9 @@ void BoxShelfStyle::SetCurrentPos(int pos) {
 // ---------------------------------------------------------------------------------------------
 
 void BoxShelfStyle::keyPressEvent(QKeyEvent* event) {
+    // Held keys jump; a single press turns the cases.
+    m_animate_step = !event->isAutoRepeat();
+    const auto restore = qScopeGuard([this] { m_animate_step = true; });
     if (event->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier)) {
         QWidget::keyPressEvent(event);
         return;
@@ -1044,8 +1061,8 @@ void BoxShelfStyle::DrawCaseBody(QPainter& p, const CaseView& view, const QModel
     p.restore();
 
 
-    // Spine face, hinged on the left edge and folded back.
-    if (!selected) {
+    // Spine face, hinged on the left edge and folded back, while the case is turned.
+    if (view.angle_deg > 0.5) {
         const double depth = 13.0 * u;
         QTransform spine_map;
         if (QTransform::quadToQuad(QPolygonF(QRectF(0, 0, depth, h)), view.Spine(depth),
@@ -1117,8 +1134,18 @@ void BoxShelfStyle::DrawFront(QPainter& p, const Metrics& m, int pos, bool selec
     view.w = w;
     view.h = h;
     view.d = 800.0 * u;
-    view.angle_deg = selected ? 0.0 : 24.0;
-    view.scale = selected ? 1.1 : 1.0;
+    // How far the case faces you: 1 selected, 0 turned, in between while it turns.
+    double face = selected ? 1.0 : 0.0;
+    if (m_turn.state() == QAbstractAnimation::Running) {
+        const double t = m_turn.currentValue().toDouble();
+        if (pos == m_turn_to) {
+            face = t;
+        } else if (pos == m_turn_from) {
+            face = 1.0 - t;
+        }
+    }
+    view.angle_deg = 24.0 * (1.0 - face);
+    view.scale = 1.0 + 0.1 * face;
     view.lift = 6.0 * u;
     view.origin = QPointF(base.center().x(), base.bottom());
     const QPolygonF front = view.Front();
@@ -1128,8 +1155,10 @@ void BoxShelfStyle::DrawFront(QPainter& p, const Metrics& m, int pos, bool selec
         IsGame(index) ? LibraryStyleContext::Info(index) : LibraryStyles::GameInfo{};
     const bool nx2 = info.is_nx2 || (info.program_id >> 56) == 0x04;
 
-    if (selected) {
-        DrawCaseBody(p, view, index, m, true, nx2);
+    if (selected || face > 0.0) {
+        // The selected case, and both cases while they turn, are drawn live; the ring once
+        // the case faces you.
+        DrawCaseBody(p, view, index, m, selected && face >= 1.0, nx2);
     } else {
         // Every unselected case is turned the same way, only placed elsewhere: draw it once
         // (the perspective pixmap and gradients are slow, for every case on every step) and

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Canvas library style. Concept by inxomnyaa.
+// Canvas library style, based on the "Canvas" ES-DE theme by Siddy212, ported by inxomnyaa.
 
 #include <algorithm>
 #include <cmath>
@@ -645,59 +645,10 @@ void CanvasStyle::paintEvent([[maybe_unused]] QPaintEvent* event) {
         }
     }
 
-    // Button hints, bottom centre.
-    {
-        QFont font_hint = font();
-        font_hint.setBold(true);
-        font_hint.setPixelSize(13);
-        p.setFont(font_hint);
-        const QFontMetrics fm(font_hint);
-        struct Hint {
-            QStringList glyphs;
-            QString label;
-        };
-        const Hint hints[] = {{{QStringLiteral("A")}, tr("Play")},
-                              {{QStringLiteral("B")}, tr("Names")},
-                              {{QStringLiteral("Y")}, tr("Info")},
-                              {{QStringLiteral("L"), QStringLiteral("R")}, tr("Style")}};
-        const qreal radius = 9.5;
-        const qreal glyph_gap = 4;
-        const qreal item_gap = 22;
-        qreal total = 0;
-        for (const Hint& hint : hints) {
-            for (const QString& glyph : hint.glyphs) {
-                total += LibraryStyleContext::GlyphWidth(glyph, radius) + glyph_gap;
-            }
-            total += fm.horizontalAdvance(hint.label);
-        }
-        total += item_gap * 3;
-        const QRectF bar(w / 2.0 - total / 2 - 20, h - FooterBarHeight - 10, total + 40,
-                         FooterBarHeight - 8);
-        QColor bar_color = dark ? pal.window().color() : QColor(255, 255, 255);
-        bar_color.setAlpha(200);
-        p.setPen(Qt::NoPen);
-        p.setBrush(bar_color);
-        p.drawRoundedRect(bar, bar.height() / 2, bar.height() / 2);
-
-        QColor ink = pal.text().color();
-        ink.setAlpha(220);
-        qreal x = bar.left() + 20;
-        const qreal cy = bar.center().y();
-        for (const Hint& hint : hints) {
-            QFont glyph_font = font_hint;
-            glyph_font.setPixelSize(std::max(8, static_cast<int>(radius * 1.2)));
-            for (const QString& glyph : hint.glyphs) {
-                LibraryStyleContext::PaintGlyph(&p, glyph, x, cy, radius, ink, 1.4, glyph_font);
-                x += LibraryStyleContext::GlyphWidth(glyph, radius) + glyph_gap;
-            }
-            p.setFont(font_hint);
-            p.setPen(ink);
-            const int label_w = fm.horizontalAdvance(hint.label);
-            p.drawText(QRectF(x, cy - 12, label_w + 2, 24), Qt::AlignLeft | Qt::AlignVCenter,
-                       hint.label);
-            x += label_w + item_gap;
-        }
-    }
+    // Button hints, bottom centre: the shared pill, so every style lists the same buttons in
+    // the same order.
+    LibraryStyleContext::PaintHintPill(&p, rect(), LibraryStyleContext::StandardHints(),
+                                       LibraryStyleContext::IsDark(pal));
 }
 
 } // namespace LibraryStyles

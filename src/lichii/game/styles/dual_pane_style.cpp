@@ -163,7 +163,9 @@ void DualPaneStyle::SetCurrentIndex(const QModelIndex& index) {
     const QModelIndex first = index.siblingAtColumn(0);
     for (size_t i = 0; i < items_.size(); ++i) {
         if (items_[i] == first) {
-            SetCurrentRow(static_cast<int>(i), true);
+            // Set from outside (the game list restoring the selection after a switch): no fade,
+            // or the top screen showed the first game for a moment before fading to this one.
+            SetCurrentRow(static_cast<int>(i), true, false);
             return;
         }
     }
@@ -388,7 +390,10 @@ QPixmap DualPaneStyle::Art(const QModelIndex& index, int logical_px) {
     const QPixmap source = SourceArt(index);
     const QString title = TitleOf(index);
     const QString key = source.isNull()
-                            ? QStringLiteral("n|%1|%2").arg(title).arg(px)
+                            ? QStringLiteral("n|%1|%2|%3")
+                                  .arg(title)
+                                  .arg(px)
+                                  .arg(palette().window().color().rgb())
                             : QStringLiteral("%1|%2").arg(source.cacheKey()).arg(px);
     if (QPixmap* cached = art_cache_.object(key)) {
         return *cached;
@@ -405,15 +410,8 @@ QPixmap DualPaneStyle::Art(const QModelIndex& index, int logical_px) {
         path.addRoundedRect(QRectF(0, 0, px, px), radius, radius);
         p.setClipPath(path);
         if (source.isNull()) {
-            const int hue = static_cast<int>(qHash(title) % 360);
-            p.fillRect(QRect(0, 0, px, px), QColor::fromHsl(hue, 90, 90));
-            QFont f = font();
-            f.setPixelSize(std::max(8, px / 2));
-            f.setBold(true);
-            p.setFont(f);
-            p.setPen(QColor(255, 255, 255, 230));
-            const QString initial = title.isEmpty() ? QStringLiteral("?") : title.left(1).toUpper();
-            p.drawText(QRect(0, 0, px, px), Qt::AlignCenter, initial);
+            // No art: the coloured placeholder with initials every other style uses.
+            LibraryStyleContext::PaintPlaceholderArt(&p, QRect(0, 0, px, px), title, palette());
         } else {
             const QPixmap scaled =
                 source.scaled(px, px, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);

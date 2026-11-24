@@ -27,7 +27,15 @@
 #include <QTimer>
 #include <QVBoxLayout>
 
+#include <fmt/format.h>
+
+#include "common/fs/path_util.h"
+#include "common/settings.h"
+#include "core/constants.h"
+#include "core/core.h"
+#include "core/hle/service/acc/profile_manager.h"
 #include "qt_common/config/uisettings.h"
+#include "qt_common/qt_common.h"
 #include "qt_common/game_list/game_list_p.h"
 #include "qt_common/game_list/model.h"
 #include "lichii/game/common.h"
@@ -899,14 +907,22 @@ LibraryStyleView* MakePlaceholderView(QWidget* parent, const QString& style_name
     return new PlaceholderView(parent, style_name);
 }
 
-std::vector<ButtonHint> LibraryStyleContext::StandardHints(const QString& option) {
+std::vector<ButtonHint> LibraryStyleContext::StandardHints(const QString& option,
+                                                           bool profile) {
     std::vector<ButtonHint> hints{{{QStringLiteral("A")}, Tr("Play")},
                                   {{QStringLiteral("B")}, Tr("Names")}};
     if (!option.isEmpty()) {
         hints.push_back({{QStringLiteral("X")}, option});
     }
     hints.push_back({{QStringLiteral("Y")}, Tr("Info")});
+    if (option != Tr("Size")) { // Dual Pane steps its own size with X
+        hints.push_back({{QStringLiteral("ZL"), QStringLiteral("ZR")}, Tr("Size")});
+    }
     hints.push_back({{QStringLiteral("L"), QStringLiteral("R")}, Tr("Style")});
+    if (profile) {
+        // Last, so every other hint keeps its place in the order all styles share.
+        hints.push_back({{QString(QChar(0x2212))}, Tr("Profile")});
+    }
     return hints;
 }
 
@@ -1054,5 +1070,41 @@ void LibraryStyleContext::PaintLogoTiles(QPainter* painter, const QRectF& area, 
     }
     painter->restore();
 }
+
+/// Picture of the active profile, or the default account picture; reloaded only when the
+/// profile or its image file changes.
+QPixmap LibraryStyleContext::UserAvatar() {
+    static QPixmap cached;
+    static QString cached_key;
+    QString path;
+    if (QtCommon::system) {
+        const auto uuid = QtCommon::system->GetProfileManager().GetUser(
+            static_cast<std::size_t>(Settings::values.current_user.GetValue()));
+        if (uuid.has_value()) {
+            const auto file = Common::FS::GetEdenPath(Common::FS::EdenPath::NANDDir) /
+                              fmt::format("system/save/8000000000000010/su/avators/{}.jpg",
+                                          uuid->FormattedString());
+            path = QString::fromStdString(Common::FS::PathToUTF8String(file));
+        }
+    }
+    const QFileInfo info(path);
+    const QString key =
+        path + QLatin1Char('|') + QString::number(info.exists() ? info.lastModified().toSecsSinceEpoch() : 0);
+    if (!cached.isNull() && key == cached_key) {
+        return cached;
+    }
+    QPixmap pixmap;
+    if (!path.isEmpty() && info.exists()) {
+        pixmap.load(path);
+    }
+    if (pixmap.isNull()) {
+        pixmap.loadFromData(Core::Constants::ACCOUNT_BACKUP_JPEG.data(),
+                            static_cast<uint>(Core::Constants::ACCOUNT_BACKUP_JPEG.size()));
+    }
+    cached = pixmap;
+    cached_key = key;
+    return cached;
+}
+
 
 } // namespace LibraryStyles

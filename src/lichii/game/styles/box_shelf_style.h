@@ -5,6 +5,7 @@
 
 #include <vector>
 #include <QCache>
+#include <QVariantAnimation>
 #include <QChar>
 #include <QColor>
 #include <QHash>
@@ -104,6 +105,12 @@ private:
     QPointer<QAbstractItemModel> m_model;
     QPersistentModelIndex m_current;
     QString m_current_key; // identity of the current game, to find it again after a model reset
+    /// A single step turns the new case to face you and the old one back (front view).
+    QVariantAnimation m_turn;
+    int m_turn_from = -1;
+    int m_turn_to = -1;
+    /// Off while a key is held: held steps jump.
+    bool m_animate_step = true;
     std::vector<QPersistentModelIndex> m_entries; // shown games: top level and inside folders
     bool m_rebuild_pending = false;
     bool m_notifying = false;

@@ -73,6 +73,8 @@ private:
     /// Shown games: top level games and the games inside folder rows.
     std::vector<QPersistentModelIndex> m_entries;
     bool m_rebuild_pending = false;
+    /// Where the profile picture was last drawn: a click there picks the profile.
+    QRectF m_avatar_rect;
     int m_current = -1;
     double m_offset = 0.0; // in cover steps
     bool m_show_names = true;

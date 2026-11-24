@@ -167,6 +167,10 @@ ConfigureDialog::~ConfigureDialog() = default;
 
 void ConfigureDialog::SetConfiguration() {}
 
+void ConfigureDialog::ShowProfiles() {
+    ui->tabWidget->setCurrentWidget(profile_tab.get());
+}
+
 void ConfigureDialog::ApplyConfiguration() {
     general_tab->ApplyConfiguration();
     ui_tab->ApplyConfiguration();

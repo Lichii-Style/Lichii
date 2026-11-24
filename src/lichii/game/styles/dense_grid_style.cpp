@@ -400,13 +400,17 @@ void DenseGridStyle::paintEvent(QPaintEvent*) {
     painter.setPen(line);
     painter.drawLine(bar.topLeft(), bar.topRight());
 
-    const QStringList hints{tr("A Launch"), tr("B Names"), tr("Y Info"), tr("X Layout"),
-                            tr("L R Style")};
-    const QString hint_text = hints.join(QStringLiteral("    "));
-    const int hint_width = metrics.horizontalAdvance(hint_text);
-    painter.setPen(LibraryStyleContext::MutedText(pal));
-    painter.drawText(bar.adjusted(Margin, 0, -Margin, 0), Qt::AlignRight | Qt::AlignVCenter,
-                     hint_text);
+    // The shared hint row (same buttons and order as every style), on the right.
+    const auto hints = LibraryStyleContext::StandardHints(tr("Layout"));
+    QFont hint_font = font();
+    hint_font.setBold(true);
+    hint_font.setPixelSize(12);
+    const qreal hint_radius = 8.0;
+    const int hint_width = static_cast<int>(
+        std::ceil(LibraryStyleContext::HintsWidth(hints, hint_font, hint_radius)));
+    LibraryStyleContext::PaintHints(&painter, hints, bar.right() - Margin - hint_width,
+                                    bar.center().y() + 0.5, hint_font, hint_radius,
+                                    LibraryStyleContext::MutedText(pal));
 
     const QModelIndex selected = CurrentIndex();
     if (selected.isValid()) {

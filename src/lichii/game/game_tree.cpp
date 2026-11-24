@@ -125,7 +125,7 @@ public:
         }
         const auto type = index.data(GameListItem::TypeRole).value<GameListItemType>();
         if (type == GameListItemType::Game) {
-            const int icon = static_cast<int>(UISettings::values.game_icon_size.GetValue());
+            const int icon = static_cast<int>(UISettings::CurrentGameIconSize().GetValue());
             size.setHeight(std::max(size.height(), icon + 16));
         } else {
             size.setHeight(std::max(size.height(), 34));

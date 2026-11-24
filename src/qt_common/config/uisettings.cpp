@@ -105,9 +105,9 @@ bool IsDarkTheme() {
 Values values = {};
 
 Setting<u32, true>& CurrentGameIconSize() {
-    return values.game_list_mode.GetValue() == Settings::GameListMode::TreeView
-               ? values.game_icon_size
-               : values.game_cover_size;
+    // One size for every view: the list, the grid, the carousel and the library styles. The
+    // list used its own (game_icon_size), so its icons didn't match after switching views.
+    return values.game_cover_size;
 }
 
 u32 CalculateWidth(u32 height, Settings::AspectRatio ratio) {

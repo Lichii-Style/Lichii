@@ -151,8 +151,13 @@ GameList::GameList(FileSys::VirtualFilesystem vfs_, FileSys::ManualContentProvid
     connect(tree_view->header(), &QHeaderView::sortIndicatorChanged, carousel_view,
             &GameCarousel::SetSort);
 
-    connect(controller_navigation, &ControllerNavigation::TriggerKeyboardEvent, this,
-            [this](Qt::Key key) { OnControllerKey(key, false); });
+    // Queued: presses are found while the controllers are read, with the navigation's lock
+    // held. Handled right there, anything that opens a dialog (profile selection, a game
+    // launch) ran its own event loop inside that read; the next read waited on the lock and
+    // Lichii froze.
+    connect(
+        controller_navigation, &ControllerNavigation::TriggerKeyboardEvent, this,
+        [this](Qt::Key key) { OnControllerKey(key, false); }, Qt::QueuedConnection);
     connect(controller_navigation, &ControllerNavigation::RepeatKeyboardEvent, this,
             [this](Qt::Key key) { OnControllerKey(key, true); });
     connect(controller_navigation, &ControllerNavigation::InputPumpRequested, this,
@@ -254,6 +259,8 @@ bool GameList::IsPopulating() const {
 }
 
 void GameList::OnPopulate() {
+    // A scan stores the list's icons at the current size.
+    list_icon_size = UISettings::CurrentGameIconSize().GetValue();
     if (game_list_mode == Settings::GameListMode::GridView && grid_view->rootIndex().isValid()) {
         grid_root_dir_index_to_restore =
             grid_view->rootIndex().data(GameListDir::GameDirRole).toInt();
@@ -320,6 +327,10 @@ void GameList::ResetViewMode() {
     switch (mode) {
     case Settings::GameListMode::TreeView:
         m_currentView = tree_view;
+        // The size may have changed while another view was shown: the list keeps scaled icons.
+        if (list_icon_size != UISettings::CurrentGameIconSize().GetValue()) {
+            ResizeListIcons();
+        }
         break;
     case Settings::GameListMode::GridView:
         m_currentView = grid_view;
@@ -446,6 +457,8 @@ void GameList::ActivateStyle(const LibraryStyles::StyleInfo* info) {
                 style_view->CurrentIndex().data(GameListItemPath::FullPathRole).toString();
         }
 
+        connect(style_view, &LibraryStyles::LibraryStyleView::ProfileSelectRequested, this,
+                &GameList::ProfileSelectRequested);
         connect(style_view, &LibraryStyles::LibraryStyleView::LaunchRequested, this,
                 &GameList::OnStyleLaunch);
         connect(style_view, &LibraryStyles::LibraryStyleView::ContextMenuRequested, this,
@@ -512,6 +525,10 @@ void GameList::OnControllerKey(Qt::Key key, bool auto_repeat) {
     if (!this->isActiveWindow()) {
         return;
     }
+    if (key == Qt::Key_ZoomIn || key == Qt::Key_ZoomOut) {
+        emit IconSizeStepRequested(key == Qt::Key_ZoomIn ? 1 : -1);
+        return;
+    }
     if (style_view != nullptr && style_view->isVisible()) {
         // The face buttons act here: as letter keys they would search, as typing does.
         switch (key) {
@@ -529,6 +546,9 @@ void GameList::OnControllerKey(Qt::Key key, bool auto_repeat) {
         case Qt::Key_BracketLeft:
         case Qt::Key_BracketRight:
             emit CycleStyleRequested(key == Qt::Key_BracketLeft ? -1 : 1);
+            return;
+        case Qt::Key_Launch0: // minus
+            emit ProfileSelectRequested();
             return;
         default:
             break;
@@ -592,6 +612,42 @@ void GameList::StyleKeyboardSearch(const QString& text) {
             return;
         }
     }
+}
+
+bool GameList::HandleIconSizeEvent(QEvent* event) {
+    if (event->type() == QEvent::Wheel) {
+        const auto* wheel = static_cast<QWheelEvent*>(event);
+        if (!(wheel->modifiers() & Qt::ControlModifier)) {
+            zoom_wheel_delta = 0;
+            return false;
+        }
+        zoom_wheel_delta += wheel->angleDelta().y();
+        // One notch of a wheel is 120; a touchpad gets there in smaller steps.
+        while (std::abs(zoom_wheel_delta) >= 120) {
+            const int step = zoom_wheel_delta > 0 ? 1 : -1;
+            zoom_wheel_delta -= step * 120;
+            emit IconSizeStepRequested(step);
+        }
+        return true;
+    }
+    if (event->type() == QEvent::KeyPress) {
+        const auto* key = static_cast<QKeyEvent*>(event);
+        if (!(key->modifiers() & Qt::ControlModifier)) {
+            return false;
+        }
+        switch (key->key()) {
+        case Qt::Key_Plus:
+        case Qt::Key_Equal:
+            emit IconSizeStepRequested(1);
+            return true;
+        case Qt::Key_Minus:
+            emit IconSizeStepRequested(-1);
+            return true;
+        default:
+            return false;
+        }
+    }
+    return false;
 }
 
 bool GameList::HandleStyleKey([[maybe_unused]] QObject* target, const QKeyEvent* event) {
@@ -1152,26 +1208,40 @@ void GameList::RefreshExternalContent() {
     item_model->RefreshExternalContent();
 }
 
+void GameList::ResizeListIcons() {
+    const u32 size = UISettings::CurrentGameIconSize().GetValue();
+    list_icon_size = size;
+    const std::function<void(QStandardItem*)> walk = [&](QStandardItem* parent) {
+        for (int row = 0; row < parent->rowCount(); ++row) {
+            QStandardItem* item = parent->child(row);
+            if (item == nullptr) {
+                continue;
+            }
+            if (item->type() == static_cast<int>(GameListItemType::Game)) {
+                GameListItemPath::ResizePicture(item, size);
+            }
+            walk(item);
+        }
+    };
+    walk(item_model->invisibleRootItem());
+    tree_view->doItemsLayout();
+}
+
 void GameList::UpdateIconSizes() {
     UpdateStyleToggles();
     if (style_view != nullptr) {
         style_view->UpdateIconSize();
     }
     // The cards read the icon size and the names setting when they paint, so a repaint is enough
-    // even when the cell size stays the same.
-    switch (game_list_mode) {
-    case Settings::GameListMode::GridView:
-        grid_view->UpdateIconSize();
-        grid_view->viewport()->update();
-        break;
-    case Settings::GameListMode::CarouselView:
-        carousel_view->UpdateIconSize();
-        carousel_view->viewport()->update();
-        break;
-    case Settings::GameListMode::TreeView:
+    // even when the cell size stays the same. Both card views take the size, not only the shown
+    // one: a size picked in a style or one of them showed the old size after L/R to the other.
+    grid_view->UpdateIconSize();
+    grid_view->viewport()->update();
+    carousel_view->UpdateIconSize();
+    carousel_view->viewport()->update();
+    if (game_list_mode == Settings::GameListMode::TreeView) {
         // View > Game Info picks the columns here.
         tree_view->UpdateColumnVisibility(item_model);
-        break;
     }
 }
 
@@ -1727,6 +1797,11 @@ void GameList::SetupScrollAnimation() {
 }
 
 bool GameList::eventFilter(QObject* obj, QEvent* event) {
+    if (((style_view != nullptr && IsStyleObject(obj)) || obj == m_currentView ||
+         obj == m_currentView->viewport()) &&
+        HandleIconSizeEvent(event)) {
+        return true;
+    }
     if (style_view != nullptr && IsStyleObject(obj)) {
         if (event->type() == QEvent::KeyPress &&
             HandleStyleKey(obj, static_cast<QKeyEvent*>(event))) {

@@ -23,9 +23,10 @@ ControllerNavigation::ControllerNavigation(Core::HID::HIDCore& hid_core, QWidget
             repeat_timer.stop();
             return;
         }
-        // After the first delay, the keyboard's repeat rate (kept between 10 and 30 a second).
+        // After the first delay, the keyboard's repeat rate, kept between 6 and 12 a second: at
+        // a keyboard's usual 30 a second a one second hold ran through most of a short library.
         const qreal rate =
-            std::clamp(QGuiApplication::styleHints()->keyboardAutoRepeatRateF(), 10.0, 30.0);
+            std::clamp(QGuiApplication::styleHints()->keyboardAutoRepeatRateF(), 6.0, 12.0);
         repeat_timer.setInterval(static_cast<int>(1000.0 / rate));
         emit RepeatKeyboardEvent(repeat_key);
     });

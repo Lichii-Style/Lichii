@@ -517,8 +517,10 @@ void GameList::OnControllerKey(Qt::Key key, bool auto_repeat) {
         if (target == nullptr || !IsStyleObject(target)) {
             target = style_view;
         }
-        QCoreApplication::postEvent(target, new QKeyEvent(QEvent::KeyPress, style_key,
-                                                          Qt::NoModifier, QString(), auto_repeat));
+        // Sent, not posted: a held direction repeats only once the previous step is done, so a
+        // slow style can't pile up steps that keep moving after release and hold up L/R.
+        QKeyEvent style_event(QEvent::KeyPress, style_key, Qt::NoModifier, QString(), auto_repeat);
+        QCoreApplication::sendEvent(target, &style_event);
         return;
     }
     if (key == Qt::Key_BracketLeft || key == Qt::Key_BracketRight) {
@@ -530,9 +532,8 @@ void GameList::OnControllerKey(Qt::Key key, bool auto_repeat) {
         // Library style buttons only.
         return;
     }
-    QKeyEvent* event =
-        new QKeyEvent(QEvent::KeyPress, key, Qt::NoModifier, QString(), auto_repeat);
-    QCoreApplication::postEvent(m_currentView, event);
+    QKeyEvent event(QEvent::KeyPress, key, Qt::NoModifier, QString(), auto_repeat);
+    QCoreApplication::sendEvent(m_currentView, &event);
 }
 
 bool GameList::HandleStyleKey(QObject* target, const QKeyEvent* event) {

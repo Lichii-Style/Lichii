@@ -61,7 +61,8 @@ private:
     int RowAt(const QPoint& pos) const;
     QRectF CoverRect(int row, const Metrics& m) const;
     QString TitleAt(int row) const;
-    void MoveTo(int row);
+    /// animate: slide there (off for held keys, see keyPressEvent).
+    void MoveTo(int row, bool animate = true);
     void AnimateToCurrent(bool animate);
     void ScheduleRebuild();
     void Rebuild();

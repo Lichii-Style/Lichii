@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <array>
+
 #include <QCache>
 #include <QColor>
 #include <QElapsedTimer>
@@ -77,7 +79,8 @@ private:
     void EnsureVisible(int row, bool animate = true);
     /// Moves the selection to the same spot on another page.
     void TurnPage(int step);
-    void SetCurrentRow(int row, bool notify);
+    /// animate: slide to the row's page (off for held keys, see keyPressEvent).
+    void SetCurrentRow(int row, bool notify, bool animate = true);
     QModelIndex IndexForRow(int row) const;
     void ScheduleRebuild();
     void Rebuild();
@@ -97,6 +100,10 @@ private:
     /// The selected tile's glow pulses (concept: 1.6 s ease-in-out); repaints only that tile.
     QTimer glow_timer;
     QElapsedTimer glow_clock;
+    /// The glow at the start and at the peak of the pulse, drawn once per tile size, accent and
+    /// pixel ratio; each frame cross-fades between them.
+    std::array<QPixmap, 2> glow_pixmaps;
+    QString glow_key;
     QCache<QString, QPixmap> cover_cache{48 * 1024}; // cost in KiB
     qreal scroll = 0; // horizontal, in px; pages sit side by side
     QVariantAnimation page_anim;

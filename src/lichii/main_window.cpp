@@ -1912,6 +1912,8 @@ void MainWindow::ConnectWidgetEvents() {
         dialog.exec();
     });
     connect(game_list, &GameList::BootGame, this, &MainWindow::BootGameFromList);
+    connect(game_list, &GameList::InputPumpRequested, this, &MainWindow::UpdateInputDrivers,
+            Qt::DirectConnection);
     connect(game_list, &GameList::GameChosen, this, &MainWindow::OnGameListLoadFile);
     connect(game_list, &GameList::ToggleNamesRequested, this, &MainWindow::ToggleShowGameName);
     connect(game_list, &GameList::ToggleInfoRequested, this, &MainWindow::ToggleShowLibraryInfo);

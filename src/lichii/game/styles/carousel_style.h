@@ -144,7 +144,6 @@ private:
     QElapsedTimer launch_timer_;
     int wheel_accum_ = 0;
     /// Time since the last step of the arrow keys, to fit the steps of a held key.
-    QElapsedTimer key_step_clock_;
 };
 
 } // namespace LibraryStyles

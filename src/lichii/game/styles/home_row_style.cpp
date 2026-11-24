@@ -212,7 +212,7 @@ int HomeRowStyle::RowAt(const QPoint& pos) const {
     return -1;
 }
 
-void HomeRowStyle::MoveTo(int row) {
+void HomeRowStyle::MoveTo(int row, bool animate) {
     const int count = RowCount();
     if (count == 0) {
         return;
@@ -222,7 +222,7 @@ void HomeRowStyle::MoveTo(int row) {
         return;
     }
     m_current = row;
-    AnimateToCurrent(true);
+    AnimateToCurrent(animate);
     update();
     emit CurrentChanged(CurrentIndex());
 }
@@ -565,12 +565,10 @@ void HomeRowStyle::paintEvent(QPaintEvent* event) {
 void HomeRowStyle::keyPressEvent(QKeyEvent* event) {
     switch (event->key()) {
     case Qt::Key_Left:
-    case Qt::Key_A:
-        MoveTo(m_current - 1);
+        MoveTo(m_current - 1, !event->isAutoRepeat());
         break;
     case Qt::Key_Right:
-    case Qt::Key_D:
-        MoveTo(m_current + 1);
+        MoveTo(m_current + 1, !event->isAutoRepeat());
         break;
     case Qt::Key_PageUp:
         MoveTo(m_current - 5);

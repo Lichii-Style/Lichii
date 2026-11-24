@@ -385,18 +385,10 @@ void CarouselStyle::MoveBy(int delta) {
 }
 
 void CarouselStyle::RepeatBy(int delta) {
-    // A held key repeats faster than the full animation: restarting it on every repeat left the
-    // covers a game or two behind the selection the whole time. Each step gets the time until
-    // the next repeat instead (a jump when that is too short to see), so the centre cover is the
-    // selected game on every step.
-    const qint64 since_last = key_step_clock_.isValid() ? key_step_clock_.restart() : kAnimationMs;
-    if (!key_step_clock_.isValid()) {
-        key_step_clock_.start();
-    }
-    const int duration = static_cast<int>(std::min<qint64>(kAnimationMs, since_last * 3 / 4));
-    MoveSteps(delta, duration >= 16, std::max(duration, 1));
-    // No background cross fade while held: it would restart on every step and flicker between
-    // two games.
+    // A held key jumps, without the slide or the background cross fade: animating every step
+    // kept the GUI thread busy the whole time, which holds up the timers the controller
+    // navigation runs on, and left the covers behind the selection.
+    MoveSteps(delta, false, 0);
     previous_row_ = -1;
 }
 
@@ -961,14 +953,29 @@ void CarouselStyle::PaintDots(QPainter& painter, const Metrics& m) {
     }
 }
 
-void CarouselStyle::paintEvent([[maybe_unused]] QPaintEvent* event) {
+void CarouselStyle::paintEvent(QPaintEvent* event) {
     EnsureBuilt();
+    // A gliding name repaints only its line many times a second: draw only the parts that
+    // reach the area being repainted, or each of those frames redraws every cover, enough to
+    // keep the GUI thread from reading the controller.
+    const QRect dirty = event->rect();
+    QRectF covers;
+    for (const Hit& hit : hits_) {
+        covers |= hit.polygon.boundingRect();
+    }
+    // Shadows, the ring and the reflection under each cover reach past its outline.
+    const bool paint_covers = hits_.empty() || animation_->state() == QAbstractAnimation::Running ||
+                              covers.adjusted(-40, -40, 40, covers.height() * 0.6 + 40)
+                                  .toAlignedRect()
+                                  .intersects(dirty);
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
     painter.setRenderHint(QPainter::SmoothPixmapTransform);
     painter.setRenderHint(QPainter::TextAntialiasing);
 
-    hits_.clear();
+    if (paint_covers) {
+        hits_.clear();
+    }
     PaintBackground(painter);
 
     if (items_.empty()) {
@@ -994,20 +1001,24 @@ void CarouselStyle::paintEvent([[maybe_unused]] QPaintEvent* event) {
     std::stable_sort(order.begin(), order.end(), [this](int l, int r) {
         return std::abs(l - position_) > std::abs(r - position_);
     });
-    for (const int slot : order) {
-        const int row = ((slot % count) + count) % count;
-        PaintCover(painter, m, row, slot - position_);
-    }
-    TrimCaches(lo, hi);
-    if (!prefetch_timer_.isActive()) {
-        prefetch_timer_.start();
+    if (paint_covers) {
+        for (const int slot : order) {
+            const int row = ((slot % count) + count) % count;
+            PaintCover(painter, m, row, slot - position_);
+        }
+        TrimCaches(lo, hi);
+        if (!prefetch_timer_.isActive()) {
+            prefetch_timer_.start();
+        }
     }
 
     PaintTexts(painter, m);
     PaintDots(painter, m);
-    LibraryStyleContext::PaintHintPill(
-        &painter, rect(), LibraryStyleContext::StandardHints(tr("Covers")),
-        LibraryStyleContext::IsDark(palette()));
+    if (dirty.bottom() >= height() - LibraryStyleContext::HintPillReserve) {
+        LibraryStyleContext::PaintHintPill(
+            &painter, rect(), LibraryStyleContext::StandardHints(tr("Covers")),
+            LibraryStyleContext::IsDark(palette()));
+    }
 }
 
 void CarouselStyle::resizeEvent(QResizeEvent* event) {
@@ -1034,14 +1045,12 @@ void CarouselStyle::keyPressEvent(QKeyEvent* event) {
     }
     switch (event->key()) {
     case Qt::Key_Left:
-    case Qt::Key_A:
     case Qt::Key_Right:
-    case Qt::Key_D: {
-        const int delta = event->key() == Qt::Key_Left || event->key() == Qt::Key_A ? -1 : 1;
+    {
+        const int delta = event->key() == Qt::Key_Left ? -1 : 1;
         if (event->isAutoRepeat()) {
             RepeatBy(delta);
         } else {
-            key_step_clock_.start();
             MoveBy(delta);
         }
         break;

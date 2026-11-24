@@ -570,21 +570,17 @@ void BoxShelfStyle::keyPressEvent(QKeyEvent* event) {
 
     switch (event->key()) {
     case Qt::Key_Left:
-    case Qt::Key_A:
         SetCurrentPos(pos - 1);
         break;
     case Qt::Key_Right:
-    case Qt::Key_D:
         SetCurrentPos(pos + 1);
         break;
     case Qt::Key_Up:
-    case Qt::Key_W:
         if (pos - m.cols >= 0) {
             SetCurrentPos(pos - m.cols);
         }
         break;
     case Qt::Key_Down:
-    case Qt::Key_S:
         if (pos + m.cols < count) {
             SetCurrentPos(pos + m.cols);
         } else if (pos / m.cols < last_row) {

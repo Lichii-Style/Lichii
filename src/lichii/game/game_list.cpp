@@ -155,6 +155,8 @@ GameList::GameList(FileSys::VirtualFilesystem vfs_, FileSys::ManualContentProvid
             [this](Qt::Key key) { OnControllerKey(key, false); });
     connect(controller_navigation, &ControllerNavigation::RepeatKeyboardEvent, this,
             [this](Qt::Key key) { OnControllerKey(key, true); });
+    connect(controller_navigation, &ControllerNavigation::InputPumpRequested, this,
+            &GameList::InputPumpRequested, Qt::DirectConnection);
 
     connect(item_model, &GameListModel::PopulatingCompleted, this,
             &GameList::OnPopulatingCompleted);
@@ -511,15 +513,33 @@ void GameList::OnControllerKey(Qt::Key key, bool auto_repeat) {
         return;
     }
     if (style_view != nullptr && style_view->isVisible()) {
-        // B toggles the names in the styles; there is no folder level to leave.
-        const Qt::Key style_key = key == Qt::Key_Escape ? Qt::Key_B : key;
+        // The face buttons act here: as letter keys they would search, as typing does.
+        switch (key) {
+        case Qt::Key_Escape: // B: there is no folder level to leave, so it toggles the names
+            emit ToggleNamesRequested();
+            return;
+        case Qt::Key_Y:
+            emit ToggleInfoRequested();
+            return;
+        case Qt::Key_X:
+            if (const QString label = style_view->CycleOption(); !label.isEmpty()) {
+                emit StyleOptionChanged(label);
+            }
+            return;
+        case Qt::Key_BracketLeft:
+        case Qt::Key_BracketRight:
+            emit CycleStyleRequested(key == Qt::Key_BracketLeft ? -1 : 1);
+            return;
+        default:
+            break;
+        }
         QWidget* target = style_view->focusWidget();
         if (target == nullptr || !IsStyleObject(target)) {
             target = style_view;
         }
         // Sent, not posted: a held direction repeats only once the previous step is done, so a
         // slow style can't pile up steps that keep moving after release and hold up L/R.
-        QKeyEvent style_event(QEvent::KeyPress, style_key, Qt::NoModifier, QString(), auto_repeat);
+        QKeyEvent style_event(QEvent::KeyPress, key, Qt::NoModifier, QString(), auto_repeat);
         QCoreApplication::sendEvent(target, &style_event);
         return;
     }
@@ -536,7 +556,45 @@ void GameList::OnControllerKey(Qt::Key key, bool auto_repeat) {
     QCoreApplication::sendEvent(m_currentView, &event);
 }
 
-bool GameList::HandleStyleKey(QObject* target, const QKeyEvent* event) {
+void GameList::StyleKeyboardSearch(const QString& text) {
+    // Like QAbstractItemView::keyboardSearch: keys typed within the keyboard input interval
+    // build up one search; the same letter again moves on to the next match.
+    if (!style_search_clock.isValid() ||
+        style_search_clock.elapsed() > QApplication::keyboardInputInterval()) {
+        style_search.clear();
+    }
+    style_search_clock.start();
+    const bool same_letter = style_search.size() == 1 &&
+                             style_search.compare(text, Qt::CaseInsensitive) == 0;
+    if (!same_letter) {
+        style_search += text;
+    }
+    const QModelIndex current = style_view->CurrentIndex();
+    const QAbstractItemModel* model = style_model;
+    if (model == nullptr) {
+        return;
+    }
+    const QModelIndex parent = current.isValid() ? current.parent() : QModelIndex{};
+    const int rows = model->rowCount(parent);
+    if (rows == 0) {
+        return;
+    }
+    // A new search starts after the current game, a growing one at it.
+    const int start = current.isValid() ? current.row() + (style_search.size() == 1 ? 1 : 0) : 0;
+    for (int i = 0; i < rows; ++i) {
+        const QModelIndex index = model->index((start + i) % rows, 0, parent);
+        QString name = index.data(GameListItemPath::TitleRole).toString();
+        if (name.isEmpty()) {
+            name = index.data(Qt::DisplayRole).toString().section(QLatin1Char('\n'), 0, 0);
+        }
+        if (name.startsWith(style_search, Qt::CaseInsensitive)) {
+            style_view->SetCurrentIndex(index);
+            return;
+        }
+    }
+}
+
+bool GameList::HandleStyleKey([[maybe_unused]] QObject* target, const QKeyEvent* event) {
     const int key = event->key();
     const Qt::KeyboardModifiers modifiers =
         event->modifiers() & ~Qt::KeyboardModifiers(Qt::KeypadModifier);
@@ -551,45 +609,11 @@ bool GameList::HandleStyleKey(QObject* target, const QKeyEvent* event) {
         return false;
     }
 
-    // Handled right away, as the arrow keys are, and still marked as a repeat while held:
-    // the views step held keys differently.
-    const auto send_arrow = [target, event](Qt::Key arrow) {
-        QKeyEvent arrow_event(QEvent::KeyPress, arrow, Qt::NoModifier, QString(),
-                              event->isAutoRepeat());
-        QCoreApplication::sendEvent(target, &arrow_event);
-    };
     switch (key) {
     case Qt::Key_Return:
     case Qt::Key_Enter:
         OnStyleLaunch(style_view->CurrentIndex());
         return true;
-    case Qt::Key_W:
-        send_arrow(Qt::Key_Up);
-        return true;
-    case Qt::Key_A:
-        send_arrow(Qt::Key_Left);
-        return true;
-    case Qt::Key_S:
-        send_arrow(Qt::Key_Down);
-        return true;
-    case Qt::Key_D:
-        send_arrow(Qt::Key_Right);
-        return true;
-    case Qt::Key_I:
-    case Qt::Key_Y:
-        emit ToggleInfoRequested();
-        return true;
-    case Qt::Key_B:
-        emit ToggleNamesRequested();
-        return true;
-    case Qt::Key_R:
-    case Qt::Key_X: {
-        const QString label = style_view->CycleOption();
-        if (!label.isEmpty()) {
-            emit StyleOptionChanged(label);
-        }
-        return true;
-    }
     case Qt::Key_BracketLeft:
         emit CycleStyleRequested(-1);
         return true;
@@ -597,8 +621,15 @@ bool GameList::HandleStyleKey(QObject* target, const QKeyEvent* event) {
         emit CycleStyleRequested(1);
         return true;
     default:
-        return false;
+        break;
     }
+    // Letters and digits search, as in the List and Modern views. The controller's face buttons
+    // don't arrive here as letters (see OnControllerKey).
+    if (const QString text = event->text(); !text.isEmpty() && text.at(0).isPrint()) {
+        StyleKeyboardSearch(text);
+        return true;
+    }
+    return false;
 }
 
 void GameList::OnStyleLaunch(const QModelIndex& index) {

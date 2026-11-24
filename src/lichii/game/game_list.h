@@ -8,6 +8,7 @@
 
 #include <QLabel>
 #include <QLineEdit>
+#include <QElapsedTimer>
 #include <QHash>
 #include <QList>
 #include <QSet>
@@ -119,6 +120,8 @@ public slots:
     void OnPopulate();
 
 signals:
+    /// Read the controllers now (see ControllerNavigation::InputPumpRequested).
+    void InputPumpRequested();
     void ReportCompatibilityRequested(u64 program_id);
     void BootGame(const QString& game_path, StartGameType type);
     void GameChosen(const QString& game_path, const u64 title_id = 0);
@@ -184,6 +187,8 @@ private:
     void ActivateStyle(const LibraryStyles::StyleInfo* info);
     bool IsStyleObject(const QObject* object) const;
     bool HandleStyleKey(QObject* target, const QKeyEvent* event);
+    /// Typing selects the next game whose name starts with what was typed, like the item views.
+    void StyleKeyboardSearch(const QString& text);
     /// A controller button as a key press; held directions come again with auto_repeat set.
     void OnControllerKey(Qt::Key key, bool auto_repeat);
     void OnStyleLaunch(const QModelIndex& index);
@@ -250,6 +255,8 @@ private:
     /// Path of the game selected in a style, kept across style switches and repopulates.
     QString style_selected_path;
     bool restoring_style_selection = false;
+    QString style_search;
+    QElapsedTimer style_search_clock;
     struct ArtworkLookup {
         u64 program_id;
         QString title;

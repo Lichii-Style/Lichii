@@ -355,7 +355,7 @@ void DualPaneStyle::EnsureVisible() {
     ClampScroll();
 }
 
-void DualPaneStyle::SetCurrentRow(int row, bool emit_signal) {
+void DualPaneStyle::SetCurrentRow(int row, bool emit_signal, bool animate) {
     if (items_.empty()) {
         return;
     }
@@ -370,7 +370,7 @@ void DualPaneStyle::SetCurrentRow(int row, bool emit_signal) {
     current_ = row;
     shown_ = items_[static_cast<size_t>(row)];
     current_path_ = shown_.data(GameListItemPath::FullPathRole).toString();
-    previous_ = old_shown;
+    previous_ = animate ? old_shown : QPersistentModelIndex{};
     fade_value_ = previous_.isValid() ? 0.0 : 1.0;
     if (previous_.isValid()) {
         fade_.start();
@@ -755,19 +755,15 @@ void DualPaneStyle::keyPressEvent(QKeyEvent* event) {
     int row = current_ < 0 ? 0 : current_;
     switch (event->key()) {
     case Qt::Key_Left:
-    case Qt::Key_A:
         row = std::max(0, row - 1);
         break;
     case Qt::Key_Right:
-    case Qt::Key_D:
         row = std::min(count - 1, row + 1);
         break;
     case Qt::Key_Up:
-    case Qt::Key_W:
         row = row - cols_ >= 0 ? row - cols_ : row;
         break;
     case Qt::Key_Down:
-    case Qt::Key_S:
         if (row + cols_ < count) {
             row += cols_;
         } else if (row / cols_ < (count - 1) / cols_) {
@@ -796,7 +792,7 @@ void DualPaneStyle::keyPressEvent(QKeyEvent* event) {
         LibraryStyleView::keyPressEvent(event);
         return;
     }
-    SetCurrentRow(row, true);
+    SetCurrentRow(row, true, !event->isAutoRepeat());
 }
 
 void DualPaneStyle::mousePressEvent(QMouseEvent* event) {

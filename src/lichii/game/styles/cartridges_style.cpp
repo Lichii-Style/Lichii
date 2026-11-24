@@ -914,19 +914,15 @@ void CartridgesStyle::keyPressEvent(QKeyEvent* event) {
     int target = row;
     switch (event->key()) {
     case Qt::Key_Left:
-    case Qt::Key_A:
         target = row < 0 ? 0 : row - 1;
         break;
     case Qt::Key_Right:
-    case Qt::Key_D:
         target = row < 0 ? 0 : row + 1;
         break;
     case Qt::Key_Up:
-    case Qt::Key_W:
         target = row < 0 ? 0 : row - m.cols;
         break;
     case Qt::Key_Down:
-    case Qt::Key_S:
         target = row < 0 ? 0 : row + m.cols;
         // Moving down from a full row into a short last row lands on its last game.
         if (row >= 0 && target >= n && row / m.cols < (n - 1) / m.cols) {

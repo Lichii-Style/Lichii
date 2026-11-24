@@ -41,6 +41,9 @@ signals:
     void TriggerKeyboardEvent(Qt::Key key);
     /// The held direction again, after a short delay and then at a steady rate.
     void RepeatKeyboardEvent(Qt::Key key);
+    /// Asks the frontend to read the controllers now, connected directly: sent before each
+    /// repeat, so a release is seen even while a busy view delays the regular input timer.
+    void InputPumpRequested();
 
 private:
     void TriggerButton(Settings::NativeButton::Values native_button, Qt::Key key);

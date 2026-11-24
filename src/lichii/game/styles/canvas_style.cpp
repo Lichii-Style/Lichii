@@ -350,21 +350,17 @@ void CanvasStyle::keyPressEvent(QKeyEvent* event) {
     const int page_rows = std::max(1, height() / (layout.tile + layout.gap) - 1);
     switch (event->key()) {
     case Qt::Key_Left:
-    case Qt::Key_A:
         row = std::max(0, row - 1);
         break;
     case Qt::Key_Right:
-    case Qt::Key_D:
         row = std::min(count - 1, row + 1);
         break;
     case Qt::Key_Up:
-    case Qt::Key_W:
         if (row - cols >= 0) {
             row -= cols;
         }
         break;
     case Qt::Key_Down:
-    case Qt::Key_S:
         if (row + cols < count) {
             row += cols;
         } else if (row / cols < (count - 1) / cols) {

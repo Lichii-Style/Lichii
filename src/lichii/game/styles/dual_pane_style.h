@@ -48,7 +48,8 @@ private:
     void ScheduleRebuild();
     void Rebuild();
     void ComputeLayout();
-    void SetCurrentRow(int row, bool emit_signal);
+    /// animate: fade the preview over (off for held keys, see keyPressEvent).
+    void SetCurrentRow(int row, bool emit_signal, bool animate = true);
     void EnsureVisible();
     void ClampScroll();
     int RowAt(const QPoint& pos) const;

@@ -387,7 +387,7 @@ void ChannelGridStyle::TurnPage(int step) {
     SetCurrentRow(std::min(page * l.per_page + k, RowCount() - 1), true);
 }
 
-void ChannelGridStyle::SetCurrentRow(int row, bool notify) {
+void ChannelGridStyle::SetCurrentRow(int row, bool notify, bool animate) {
     const int count = RowCount();
     if (count == 0) {
         return;
@@ -400,7 +400,7 @@ void ChannelGridStyle::SetCurrentRow(int row, bool notify) {
     const bool changed = CurrentRow() != row;
     current = QPersistentModelIndex{index};
     current_hint = row;
-    EnsureVisible(row);
+    EnsureVisible(row, animate);
     update();
     if (changed && notify) {
         emit CurrentChanged(index);
@@ -427,35 +427,41 @@ void ChannelGridStyle::keyPressEvent(QKeyEvent* event) {
     const int k = row % l.per_page;
     const int column = PageOf(l, row) * l.cols + k % l.cols;
     const int line = k / l.cols;
+    // Held keys jump: animating every step keeps the GUI thread busy all the time, which holds
+    // up the timers the controller navigation runs on.
+    const bool animate = !event->isAutoRepeat();
     switch (event->key()) {
     case Qt::Key_Left:
-    case Qt::Key_A:
         if (const int to = RowFor(l, column - 1, line); to >= 0) {
-            SetCurrentRow(to, true);
+            SetCurrentRow(to, true, animate);
+        } else if (row > 0) {
+            // No tile to the left: the previous game, at the end of the line above.
+            SetCurrentRow(row - 1, true, animate);
         }
         break;
-    case Qt::Key_Right:
-    case Qt::Key_D: {
+    case Qt::Key_Right: {
         // Same line in the next column; on a short last page, the nearest game above it.
         int to = -1;
         for (int ln = line; ln >= 0 && to < 0; --ln) {
             to = RowFor(l, column + 1, ln);
         }
+        if (to < 0 && row + 1 < count) {
+            // No tile to the right: the next game, at the start of the line below.
+            to = row + 1;
+        }
         if (to >= 0) {
-            SetCurrentRow(to, true);
+            SetCurrentRow(to, true, animate);
         }
         break;
     }
     case Qt::Key_Up:
-    case Qt::Key_W:
         if (const int to = RowFor(l, column, line - 1); to >= 0) {
-            SetCurrentRow(to, true);
+            SetCurrentRow(to, true, animate);
         }
         break;
     case Qt::Key_Down:
-    case Qt::Key_S:
         if (const int to = RowFor(l, column, line + 1); to >= 0) {
-            SetCurrentRow(to, true);
+            SetCurrentRow(to, true, animate);
         }
         break;
     case Qt::Key_Home:
@@ -632,22 +638,53 @@ void ChannelGridStyle::PaintTile(QPainter& p, const Layout& l, int row, bool sel
     p.drawPath(shape.translated(0, 3));
 
     // Glow for the selected tile, under the frame so only the outside shows. Concept:
-    // 0 0 26px 6px at 55 %, pulsing to 0 0 34px 10px at 35 %.
+    // 0 0 26px 6px at 55 %, pulsing to 0 0 34px 10px at 35 %. Ten wide anti-aliased rings cost
+    // about 20 ms, 30 times a second: draw the start and the peak of the pulse once and
+    // cross-fade between them, which grows and softens the glow the same way.
     if (selected) {
-        const qreal spread = 3.0 + 3.0 * pulse;
-        const qreal blur = 16.0 + 6.0 * pulse;
-        const qreal strength = 0.55 - 0.20 * pulse;
-        p.setBrush(Qt::NoBrush);
-        constexpr int steps = 10;
-        for (int i = steps; i >= 1; --i) {
-            // Rings overlap, so alphas add up near the tile: keep each one faint.
-            const qreal reach = spread + blur * i / steps;
-            const qreal fall = 1.0 - static_cast<qreal>(i - 1) / steps;
-            QColor glow = accent;
-            glow.setAlphaF(std::clamp(strength * fall * fall * 0.14, 0.0, 1.0));
-            p.setPen(QPen(glow, 2.0 * reach));
-            p.drawPath(shape);
+        constexpr qreal margin = 30.0;
+        const qreal dpr = devicePixelRatioF();
+        const QString key = QStringLiteral("%1x%2|%3|%4")
+                                .arg(qRound(tile.width()))
+                                .arg(qRound(tile.height()))
+                                .arg(accent.rgba())
+                                .arg(dpr);
+        if (key != glow_key) {
+            glow_key = key;
+            const QSizeF size(tile.width() + 2 * margin, tile.height() + 2 * margin);
+            const QPainterPath local =
+                CrtPath(QRectF(margin, margin, tile.width(), tile.height()));
+            for (int peak = 0; peak < 2; ++peak) {
+                QPixmap& pm = glow_pixmaps[static_cast<size_t>(peak)];
+                pm = QPixmap(QSize(static_cast<int>(std::ceil(size.width() * dpr)),
+                                   static_cast<int>(std::ceil(size.height() * dpr))));
+                pm.setDevicePixelRatio(dpr);
+                pm.fill(Qt::transparent);
+                QPainter gp(&pm);
+                gp.setRenderHint(QPainter::Antialiasing, true);
+                gp.setBrush(Qt::NoBrush);
+                const qreal spread = peak ? 6.0 : 3.0;
+                const qreal blur = peak ? 22.0 : 16.0;
+                const qreal strength = peak ? 0.35 : 0.55;
+                constexpr int steps = 10;
+                for (int i = steps; i >= 1; --i) {
+                    // Rings overlap, so alphas add up near the tile: keep each one faint.
+                    const qreal reach = spread + blur * i / steps;
+                    const qreal fall = 1.0 - static_cast<qreal>(i - 1) / steps;
+                    QColor glow = accent;
+                    glow.setAlphaF(std::clamp(strength * fall * fall * 0.14, 0.0, 1.0));
+                    gp.setPen(QPen(glow, 2.0 * reach));
+                    gp.drawPath(local);
+                }
+            }
         }
+        const QPointF at(tile.left() - margin, tile.top() - margin);
+        p.save();
+        p.setOpacity(1.0 - pulse);
+        p.drawPixmap(at, glow_pixmaps[0]);
+        p.setOpacity(pulse);
+        p.drawPixmap(at, glow_pixmaps[1]);
+        p.restore();
     }
 
     // Thin pale frame around the screen.
@@ -863,7 +900,11 @@ void ChannelGridStyle::PaintDock(QPainter& p, const Layout& l) {
     }
 }
 
-void ChannelGridStyle::paintEvent(QPaintEvent*) {
+void ChannelGridStyle::paintEvent(QPaintEvent* event) {
+    // The glow and gliding names repaint small areas many times a second: draw only the parts
+    // that reach the area being repainted, or every frame redraws (and measures) all tiles
+    // and the dock, enough to keep the GUI thread from reading the controller.
+    const QRect dirty = event->rect();
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
     p.setRenderHint(QPainter::SmoothPixmapTransform, true);
@@ -908,13 +949,20 @@ void ChannelGridStyle::paintEvent(QPaintEvent*) {
         static const QPixmap logo(QStringLiteral(":/icons/default/256x256/lichii.png"));
         for (int page = first_page; page <= last_page; ++page) {
             const int end = std::min(count, (page + 1) * l.per_page);
+            // A tile's area: its name and info below, and the glow and grown frame around it.
+            const auto reaches = [&](int row) {
+                return TileRect(l, row).adjusted(-60, -60, 60, 60 + l.name_h).intersects(dirty);
+            };
             for (int row = page * l.per_page; row < end; ++row) {
-                if (row != current_row) {
+                if (row != current_row && reaches(row)) {
                     PaintTile(p, l, row, false);
                 }
             }
             // Empty slots fill the rest of the page: a faint frame with a faint Lichii icon.
             for (int row = end; row < (page + 1) * l.per_page; ++row) {
+                if (!reaches(row)) {
+                    continue;
+                }
                 const QRectF slot = TileRect(l, row);
                 const QPainterPath shape = CrtPath(slot);
                 QColor fill = pal.text().color();
@@ -952,6 +1000,9 @@ void ChannelGridStyle::paintEvent(QPaintEvent*) {
                 continue;
             }
             const QRectF a = ArrowRect(l, right);
+            if (!a.adjusted(-4, -4, 4, 4).intersects(dirty)) {
+                continue;
+            }
             QPolygonF tri;
             if (right) {
                 tri << a.topLeft() << QPointF(a.right(), a.center().y()) << a.bottomLeft();
@@ -971,7 +1022,10 @@ void ChannelGridStyle::paintEvent(QPaintEvent*) {
         }
     }
 
-    PaintDock(p, l);
+    // The dock's edge dips up to l.dip above dock_top where the selected name sits.
+    if (QRect(0, l.dock_top - l.dip - 8, width(), height()).intersects(dirty)) {
+        PaintDock(p, l);
+    }
 }
 
 namespace {

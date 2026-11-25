@@ -34,6 +34,9 @@ public:
     void SetShowNames(bool show) override;
     void SetShowInfo(bool show) override;
     QString CycleOption() override;
+    bool OptionOn() const override {
+        return side_by_side_;
+    }
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -50,7 +53,15 @@ private:
     void ComputeLayout();
     /// animate: fade the preview over (off for held keys, see keyPressEvent).
     void SetCurrentRow(int row, bool emit_signal, bool animate = true);
-    void EnsureVisible();
+    /// animate: slide to the selection's page (horizontal layout).
+    void EnsureVisible(bool animate = false);
+    /// The grid's pages lie side by side (like Channels): the shown one, and one left/right.
+    int ShownPage() const;
+    int PageCount() const;
+    /// Top of a page's first row: the rows it uses are centred in the screen.
+    int PageTop(int page) const;
+    void TurnPage(int step);
+    QRect ArrowRect(bool right) const;
     void ClampScroll();
     int RowAt(const QPoint& pos) const;
     QRect CellRect(int row) const;
@@ -74,7 +85,8 @@ private:
 
     bool show_names_ = true;
     bool show_info_ = true;
-    int icon_level_ = 1; // 0 small, 1 medium, 2 large
+    /// X: the screens side by side (info left, games right) instead of on top of each other.
+    bool side_by_side_ = false;
 
     QRect top_rect_;
     QRect grid_pane_;
@@ -83,7 +95,11 @@ private:
     int cols_ = 1;
     int cell_w_ = 80;
     int cell_h_ = 80;
-    int scroll_ = 0;
+    int lines_ = 1;    // rows per page
+    int per_page_ = 1; // games per page
+    qreal page_scroll_ = 0.0;
+    int wheel_pages_ = 0; // wheel delta not yet turned into a page
+    QVariantAnimation page_anim_;
 
     QVariantAnimation fade_;
     qreal fade_value_ = 1.0;

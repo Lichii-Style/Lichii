@@ -43,6 +43,9 @@ public:
     void SetShowNames(bool show) override;
     void SetShowInfo(bool show) override;
     QString CycleOption() override;
+    bool OptionOn() const override {
+        return m_spines;
+    }
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -109,8 +112,9 @@ private:
     QVariantAnimation m_turn;
     int m_turn_from = -1;
     int m_turn_to = -1;
-    /// Off while a key is held: held steps jump.
-    bool m_animate_step = true;
+    /// On only for a single key press or a click: held steps jump, and a selection set from
+    /// outside (restored after a style switch) doesn't turn from the first case.
+    bool m_animate_step = false;
     std::vector<QPersistentModelIndex> m_entries; // shown games: top level and inside folders
     bool m_rebuild_pending = false;
     bool m_notifying = false;

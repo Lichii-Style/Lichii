@@ -248,6 +248,9 @@ struct Values {
     /// Id of the library style (lichii/game/styles) shown in place of the Modern grid; empty keeps
     /// the Modern grid. Only used while game_list_mode is the grid view.
     Setting<std::string> library_layout{linkage, {}, "library_layout", Category::UiGameList};
+    /// Each library style's X option, kept per style: "box_shelf=1,dual_pane=0".
+    Setting<std::string> library_style_options{linkage, {}, "library_style_options",
+                                               Category::UiGameList};
     /// Info panel of the library styles (play time, update version).
     Setting<bool> show_library_info{linkage, true, "show_library_info", Category::UiGameList};
 

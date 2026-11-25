@@ -248,7 +248,8 @@ void ChannelGridStyle::SetCurrentIndex(const QModelIndex& index) {
     const QPersistentModelIndex wanted{index.sibling(index.row(), 0)};
     const auto it = std::find(entries.begin(), entries.end(), wanted);
     if (it != entries.end()) {
-        SetCurrentRow(static_cast<int>(it - entries.begin()), false);
+        // From outside (restored after a style switch): no page slide.
+        SetCurrentRow(static_cast<int>(it - entries.begin()), false, false);
     }
 }
 
@@ -278,13 +279,23 @@ ChannelGridStyle::Layout ChannelGridStyle::ComputeLayout() const {
     // TV-shaped tiles packed close together. View > Game Icon Size picks how many rows fit;
     // the tiles then grow to fill the height. The list goes on to the right, a page at a time.
     const int wanted_h = std::max(16, LibraryStyleContext::ArtSize());
-    l.gap = std::max(6, wanted_h / 16);
     // Every row keeps room for a name and an info line, whether they are shown or not, so turning
     // names or info on or off never moves, resizes or adds tiles; it only shows or hides the text.
-    l.name_h = NameHeight + InfoHeight;
+    // Above and below each tile there is room for the selected one's growth and ring.
+    l.sel_room = static_cast<int>(std::ceil(wanted_h * 0.02)) + 6;
+    l.gap = std::max({6, wanted_h / 16, l.sel_room});
+    l.name_h = NameHeight + InfoHeight + l.sel_room;
     // As many rows as fit at Game Icon Size or bigger (rounding down), then the tiles grow to fill.
     l.rows = std::max(1, (grid_h + l.gap) / (wanted_h + l.name_h + l.gap));
     l.tile_h = std::max(16, (grid_h + l.gap) / l.rows - l.gap - l.name_h);
+    // The tiles grew: so does the selected one's growth, take it from the tile.
+    const int grown_room = static_cast<int>(std::ceil(l.tile_h * 0.02)) + 6;
+    if (grown_room > l.sel_room) {
+        l.tile_h -= grown_room - l.sel_room;
+        l.name_h += grown_room - l.sel_room;
+        l.sel_room = grown_room;
+        l.gap = std::max(l.gap, l.sel_room);
+    }
     l.tile_w = l.tile_h * 16 / 10;
     const int peek = std::max(28, l.tile_w / 4); // the next page shows at the edges
     if (l.tile_w > w - 2 * peek) {
@@ -376,7 +387,7 @@ void ChannelGridStyle::EnsureVisible(int row, bool animate) {
     }
     page_anim.setStartValue(scroll);
     page_anim.setEndValue(target);
-    page_anim.start();
+    StartAnimation(page_anim);
 }
 
 void ChannelGridStyle::TurnPage(int step) {
@@ -772,7 +783,7 @@ void ChannelGridStyle::PaintTileLive(QPainter& p, const Layout& l, int row, bool
         p.drawPath(shape);
     }
 
-    int text_top = static_cast<int>(cell.bottom()) + 4;
+    int text_top = static_cast<int>(cell.bottom()) + l.sel_room;
     if (show_names) {
         QFont f = font();
         f.setPixelSize(std::clamp(l.tile_w / 20, 11, 15));
@@ -949,7 +960,7 @@ void ChannelGridStyle::PaintDock(QPainter& p, const Layout& l) {
     hint_font.setBold(true);
     hint_font.setPixelSize(std::clamp(l.dock_h * 10 / 100, 10, 13));
     const qreal hint_r = hint_font.pixelSize() * 0.75;
-    const auto hints = LibraryStyleContext::StandardHints({}, true);
+    const auto hints = LibraryStyleContext::StandardHints();
     const qreal hints_w = LibraryStyleContext::HintsWidth(hints, hint_font, hint_r);
     const bool show_hints = hints_w <= inner_w;
     const int date_h = QFontMetrics(df).height();

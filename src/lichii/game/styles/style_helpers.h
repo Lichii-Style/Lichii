@@ -172,8 +172,9 @@ public:
 
     /// The library buttons: A Play, B Names, X `option` (when the style has one), Y Info,
     /// L R Style. Letters are Switch positions, like the controller mapping.
-    /// A, B, the style's X option, Y, ZL/ZR icon size and L/R; `profile` adds minus: Profile last.
-    static std::vector<ButtonHint> StandardHints(const QString& option = {}, bool profile = false);
+    /// A, B, the style's X option, Y, minus Profile, ZL/ZR size and L/R style: the same buttons
+    /// in the same order in every style.
+    static std::vector<ButtonHint> StandardHints(const QString& option = {});
     /// Picture of the active profile, or the default account picture; reloaded only when the
     /// profile or its image file changes.
     static QPixmap UserAvatar();

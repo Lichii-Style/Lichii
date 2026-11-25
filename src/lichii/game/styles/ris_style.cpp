@@ -326,7 +326,7 @@ void RisStyle::ScrollShelfTo(int position, bool animate) {
     }
     scroll_animation->setStartValue(offset);
     scroll_animation->setEndValue(target);
-    scroll_animation->start();
+    StartAnimation(*scroll_animation);
 }
 
 void RisStyle::Relayout() {

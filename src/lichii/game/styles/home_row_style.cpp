@@ -236,7 +236,7 @@ void HomeRowStyle::AnimateToCurrent(bool animate) {
     }
     m_animation->setStartValue(m_offset);
     m_animation->setEndValue(target);
-    m_animation->start();
+    StartAnimation(*m_animation);
 }
 
 void HomeRowStyle::ScheduleRebuild() {
@@ -366,7 +366,7 @@ void HomeRowStyle::paintEvent(QPaintEvent* event) {
         QColor line = pal.color(QPalette::WindowText);
         line.setAlpha(45);
         painter.fillRect(QRect(side, line_y, width() - 2 * side, 1), line);
-        const auto hints = LibraryStyleContext::StandardHints({}, true);
+        const auto hints = LibraryStyleContext::StandardHints();
         const qreal hints_w = LibraryStyleContext::HintsWidth(hints, hint_font, radius);
         if (hints_w <= width() - 2 * side - 16) {
             LibraryStyleContext::PaintHints(&painter, hints, width() - side - 8 - hints_w,

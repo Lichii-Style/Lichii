@@ -55,6 +55,9 @@ private:
         /// Between columns: wider than between rows, so the channels don't crowd side by side.
         int col_gap = 14;
         int name_h = 0;
+        /// Room around a tile for the selected one: it grows 4 % and gets a 4 px ring, which
+        /// reached into its name and into the info line of the row above on big tiles.
+        int sel_room = 6;
         int rows = 1;
         int cols = 1;
         int per_page = 1;

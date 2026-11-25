@@ -168,7 +168,18 @@ ConfigureDialog::~ConfigureDialog() = default;
 void ConfigureDialog::SetConfiguration() {}
 
 void ConfigureDialog::ShowProfiles() {
-    ui->tabWidget->setCurrentWidget(profile_tab.get());
+    // System on the left, then its Profiles tab (each tab sits in its own scroll area).
+    for (int row = 0; row < ui->selectorList->count(); ++row) {
+        const auto tabs =
+            qvariant_cast<QList<QWidget*>>(ui->selectorList->item(row)->data(Qt::UserRole));
+        if (tabs.contains(profile_tab.get())) {
+            ui->selectorList->setCurrentRow(row);
+            break;
+        }
+    }
+    if (QScrollArea* const area = scroll_areas[profile_tab.get()]) {
+        ui->tabWidget->setCurrentWidget(area);
+    }
 }
 
 void ConfigureDialog::ApplyConfiguration() {

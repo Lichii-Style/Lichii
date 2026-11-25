@@ -451,6 +451,8 @@ void GameList::ActivateStyle(const LibraryStyles::StyleInfo* info) {
         style_view->setProperty("libraryStyle", QString::fromUtf8(info->id));
         style_view->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
         style_view->SetModel(style_model);
+        // The style's X option as it was left.
+        style_view->SetOptionOn(StyleOptionOn(style_id));
         // A view may pick its first entry in SetModel without emitting CurrentChanged.
         if (style_selected_path.isEmpty()) {
             style_selected_path =
@@ -529,6 +531,10 @@ void GameList::OnControllerKey(Qt::Key key, bool auto_repeat) {
         emit IconSizeStepRequested(key == Qt::Key_ZoomIn ? 1 : -1);
         return;
     }
+    if (key == Qt::Key_Launch0) { // minus, in every view
+        emit ProfileSelectRequested();
+        return;
+    }
     if (style_view != nullptr && style_view->isVisible()) {
         // The face buttons act here: as letter keys they would search, as typing does.
         switch (key) {
@@ -540,15 +546,13 @@ void GameList::OnControllerKey(Qt::Key key, bool auto_repeat) {
             return;
         case Qt::Key_X:
             if (const QString label = style_view->CycleOption(); !label.isEmpty()) {
+                SaveStyleOption();
                 emit StyleOptionChanged(label);
             }
             return;
         case Qt::Key_BracketLeft:
         case Qt::Key_BracketRight:
             emit CycleStyleRequested(key == Qt::Key_BracketLeft ? -1 : 1);
-            return;
-        case Qt::Key_Launch0: // minus
-            emit ProfileSelectRequested();
             return;
         default:
             break;
@@ -608,6 +612,8 @@ void GameList::StyleKeyboardSearch(const QString& text) {
             name = index.data(Qt::DisplayRole).toString().section(QLatin1Char('\n'), 0, 0);
         }
         if (name.startsWith(style_search, Qt::CaseInsensitive)) {
+            // A jump, like the List and Modern views: no slide through the games between.
+            const LibraryStyles::LibraryStyleView::Quiet quiet(style_view);
             style_view->SetCurrentIndex(index);
             return;
         }
@@ -732,7 +738,11 @@ void GameList::RestoreStyleSelection() {
     if (found.isValid() && !restoring_style_selection &&
         style_view->CurrentIndex() != found) {
         restoring_style_selection = true;
-        style_view->SetCurrentIndex(found);
+        {
+            // Restored, not chosen: show it at once, without any style's animation.
+            const LibraryStyles::LibraryStyleView::Quiet quiet(style_view);
+            style_view->SetCurrentIndex(found);
+        }
         restoring_style_selection = false;
     }
 }
@@ -1206,6 +1216,39 @@ void GameList::RefreshGameDirectory() {
 
 void GameList::RefreshExternalContent() {
     item_model->RefreshExternalContent();
+}
+
+namespace {
+/// "box_shelf=1,dual_pane=0" as id -> on.
+QHash<QString, bool> ParseStyleOptions() {
+    QHash<QString, bool> options;
+    const QString text = QString::fromStdString(UISettings::values.library_style_options.GetValue());
+    for (const QString& part : text.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+        const qsizetype eq = part.indexOf(QLatin1Char('='));
+        if (eq > 0) {
+            options.insert(part.left(eq), part.mid(eq + 1) == QStringLiteral("1"));
+        }
+    }
+    return options;
+}
+} // namespace
+
+bool GameList::StyleOptionOn(const std::string& id) const {
+    return ParseStyleOptions().value(QString::fromStdString(id), false);
+}
+
+void GameList::SaveStyleOption() {
+    if (style_view == nullptr || style_id.empty()) {
+        return;
+    }
+    QHash<QString, bool> options = ParseStyleOptions();
+    options.insert(QString::fromStdString(style_id), style_view->OptionOn());
+    QStringList parts;
+    for (auto it = options.cbegin(); it != options.cend(); ++it) {
+        parts << it.key() + (it.value() ? QStringLiteral("=1") : QStringLiteral("=0"));
+    }
+    parts.sort();
+    UISettings::values.library_style_options = parts.join(QLatin1Char(',')).toStdString();
 }
 
 void GameList::ResizeListIcons() {

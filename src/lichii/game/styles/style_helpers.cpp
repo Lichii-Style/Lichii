@@ -907,22 +907,16 @@ LibraryStyleView* MakePlaceholderView(QWidget* parent, const QString& style_name
     return new PlaceholderView(parent, style_name);
 }
 
-std::vector<ButtonHint> LibraryStyleContext::StandardHints(const QString& option,
-                                                           bool profile) {
+std::vector<ButtonHint> LibraryStyleContext::StandardHints(const QString& option) {
     std::vector<ButtonHint> hints{{{QStringLiteral("A")}, Tr("Play")},
                                   {{QStringLiteral("B")}, Tr("Names")}};
     if (!option.isEmpty()) {
         hints.push_back({{QStringLiteral("X")}, option});
     }
     hints.push_back({{QStringLiteral("Y")}, Tr("Info")});
-    if (option != Tr("Size")) { // Dual Pane steps its own size with X
-        hints.push_back({{QStringLiteral("ZL"), QStringLiteral("ZR")}, Tr("Size")});
-    }
+    hints.push_back({{QString(QChar(0x2212))}, Tr("Profile")});
+    hints.push_back({{QStringLiteral("ZL"), QStringLiteral("ZR")}, Tr("Size")});
     hints.push_back({{QStringLiteral("L"), QStringLiteral("R")}, Tr("Style")});
-    if (profile) {
-        // Last, so every other hint keeps its place in the order all styles share.
-        hints.push_back({{QString(QChar(0x2212))}, Tr("Profile")});
-    }
     return hints;
 }
 

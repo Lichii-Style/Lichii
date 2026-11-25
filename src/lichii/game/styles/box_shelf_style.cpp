@@ -299,7 +299,7 @@ QString BoxShelfStyle::CycleOption() {
         EnsureVisible(pos);
     }
     update();
-    return m_spines ? tr("Cases: spine") : tr("Cases: front");
+    return m_spines ? tr("Layout: spines") : tr("Layout: fronts");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -554,7 +554,7 @@ void BoxShelfStyle::SetCurrentPos(int pos) {
     if (!m_spines && m_animate_step && old_pos >= 0 && isVisible()) {
         m_turn_from = old_pos;
         m_turn_to = pos;
-        m_turn.start();
+        StartAnimation(m_turn);
     }
     update();
     NotifyCurrent();
@@ -567,7 +567,7 @@ void BoxShelfStyle::SetCurrentPos(int pos) {
 void BoxShelfStyle::keyPressEvent(QKeyEvent* event) {
     // Held keys jump; a single press turns the cases.
     m_animate_step = !event->isAutoRepeat();
-    const auto restore = qScopeGuard([this] { m_animate_step = true; });
+    const auto restore = qScopeGuard([this] { m_animate_step = false; });
     if (event->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier)) {
         QWidget::keyPressEvent(event);
         return;
@@ -636,7 +636,9 @@ void BoxShelfStyle::mousePressEvent(QMouseEvent* event) {
     if (event->button() == Qt::LeftButton || event->button() == Qt::RightButton) {
         const int pos = HitTest(event->position());
         if (pos >= 0) {
+            m_animate_step = true;
             SetCurrentPos(pos);
+            m_animate_step = false;
             if (event->button() == Qt::RightButton && m_current.isValid()) {
                 emit ContextMenuRequested(QModelIndex(m_current),
                                           event->globalPosition().toPoint());
@@ -763,7 +765,7 @@ void BoxShelfStyle::paintEvent([[maybe_unused]] QPaintEvent* event) {
     }
 
     LibraryStyleContext::PaintHintPill(&p, rect(),
-                                       LibraryStyleContext::StandardHints(m_spines ? tr("Front") : tr("Spine")), dark);
+                                       LibraryStyleContext::StandardHints(tr("Layout")), dark);
 }
 
 QString BoxShelfStyle::PixmapKey(QChar kind, const QModelIndex& index, const Metrics& m, bool dark,

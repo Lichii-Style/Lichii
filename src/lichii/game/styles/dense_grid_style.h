@@ -30,6 +30,9 @@ public:
     void SetShowNames(bool show) override;
     void SetShowInfo(bool show) override;
     QString CycleOption() override;
+    bool OptionOn() const override {
+        return names_on_tiles;
+    }
 
 protected:
     void paintEvent(QPaintEvent* event) override;

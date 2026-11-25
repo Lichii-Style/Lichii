@@ -4,6 +4,7 @@
 // Dual Pane library style. Concept by inxomnyaa.
 
 #include <algorithm>
+#include <vector>
 #include <cmath>
 
 #include <QAbstractItemModel>
@@ -95,6 +96,12 @@ DualPaneStyle::DualPaneStyle(QWidget* parent)
     });
     blink_timer->start();
 
+    page_anim_.setDuration(220);
+    page_anim_.setEasingCurve(QEasingCurve::OutCubic);
+    connect(&page_anim_, &QVariantAnimation::valueChanged, this, [this](const QVariant& value) {
+        page_scroll_ = value.toReal();
+        update(grid_pane_);
+    });
     fade_.setDuration(FadeMs);
     fade_.setStartValue(0.0);
     fade_.setEndValue(1.0);
@@ -188,21 +195,14 @@ void DualPaneStyle::SetShowInfo(bool show) {
 }
 
 QString DualPaneStyle::OptionLabel() const {
-    switch (icon_level_) {
-    case 0:
-        return tr("Icon size: small");
-    case 2:
-        return tr("Icon size: large");
-    default:
-        return tr("Icon size: medium");
-    }
+    return side_by_side_ ? tr("Layout: side by side") : tr("Layout: stacked");
 }
 
 QString DualPaneStyle::CycleOption() {
-    icon_level_ = (icon_level_ + 1) % 3;
+    side_by_side_ = !side_by_side_;
+    page_anim_.stop();
     art_cache_.clear();
     ComputeLayout();
-    ClampScroll();
     EnsureVisible();
     update();
     return OptionLabel();
@@ -278,35 +278,95 @@ void DualPaneStyle::Rebuild() {
 void DualPaneStyle::ComputeLayout() {
     const int w = width();
     const int h = height();
-    // Two screens across the whole view, the top one a bit shorter (no console frame).
-    const int total_h = std::max(0, h - 3 * Margin);
-    const int top_h = static_cast<int>(total_h * 0.45);
-    top_rect_ = QRect(Margin, Margin, std::max(0, w - 2 * Margin), top_h);
-    grid_pane_ = QRect(Margin, top_rect_.bottom() + 1 + Margin, top_rect_.width(),
-                       std::max(0, total_h - top_h));
-    grid_area_ = grid_pane_.adjusted(PanePad - 4, PanePad - 4, -(PanePad - 4), -(PanePad - 4));
+    if (side_by_side_) {
+        // X: the screens side by side (a phone held sideways), the info screen on the left.
+        const int total_w = std::max(0, w - 3 * Margin);
+        const int top_w = static_cast<int>(total_w * 0.45);
+        top_rect_ = QRect(Margin, Margin, top_w, std::max(0, h - 2 * Margin));
+        grid_pane_ = QRect(top_rect_.right() + 1 + Margin, Margin, std::max(0, total_w - top_w),
+                           top_rect_.height());
+    } else {
+        // Two screens across the whole view, the top one a bit shorter (no console frame).
+        const int total_h = std::max(0, h - 3 * Margin);
+        const int top_h = static_cast<int>(total_h * 0.45);
+        top_rect_ = QRect(Margin, Margin, std::max(0, w - 2 * Margin), top_h);
+        grid_pane_ = QRect(Margin, top_rect_.bottom() + 1 + Margin, top_rect_.width(),
+                           std::max(0, total_h - top_h));
+    }
+    // One row more per size step: Full Size 1, Cover 2, Large 3, Standard 4, Medium 5, Small 6.
+    const int art = LibraryStyleContext::ArtSize();
+    lines_ = art >= 256 ? 1 : art >= 160 ? 2 : art >= 128 ? 3 : art >= 64 ? 4 : art >= 44 ? 5 : 6;
+    // The rows fill the screen's height. Concept tile: the art is 80 % of a padded shell, and
+    // shells keep a fifth of a shell between them, across and down alike. The top and bottom
+    // margin match that gap (at least clear of the page arrows); the width the columns leave
+    // over is split between the left and right margin, like Channels centres its pages.
+    const qreal pane_w = grid_pane_.width();
+    const qreal pane_h = grid_pane_.height();
+    const qreal arrow_room = ArrowRect(false).width() + 6.0;
+    qreal shell = pane_h / (lines_ + (lines_ + 1) / 5.0);
+    qreal margin = shell / 5.0;
+    if (margin < arrow_room) {
+        margin = arrow_room;
+        shell = std::max(8.0, (pane_h - 2 * margin) / (lines_ + (lines_ - 1) / 5.0));
+    }
+    const qreal gap = shell / 5.0;
+    cols_ = std::max(1, static_cast<int>((pane_w - 2 * margin + gap) / (shell + gap)));
+    cell_w_ = std::max(1, static_cast<int>(std::lround(shell + gap)));
+    cell_h_ = cell_w_;
+    icon_px_ = std::max(16, static_cast<int>(shell * 0.8));
+    const qreal left = (pane_w - cols_ * cell_w_) / 2.0;
+    grid_area_ = QRect(grid_pane_.left() + static_cast<int>(std::lround(left)),
+                       grid_pane_.top() + static_cast<int>(std::lround(margin - gap / 2)),
+                       cols_ * cell_w_, lines_ * cell_h_);
+    per_page_ = lines_ * cols_;
+    ClampScroll();
+}
 
-    // The bottom screen's small icons are 3/5 of View > Game Icon Size, so every size option
-    // changes them; the style's own option (X) still steps them smaller or larger.
-    static constexpr qreal level_scale[3] = {0.72, 1.0, 1.39};
-    const int base = LibraryStyleContext::ArtSize() * 3 / 5;
-    icon_px_ = std::clamp(static_cast<int>(base * level_scale[std::clamp(icon_level_, 0, 2)]),
-                          16, 256);
-    // Concept tile: the art is 80 % of a padded shell; the selection brackets sit 7 % of the
-    // shell outside it, so neighbours keep a gap of a fifth of the shell.
-    const int shell = static_cast<int>(std::lround(icon_px_ / 0.8));
-    const int gap_w = std::max(6, shell / 5);
-    cols_ = std::max(1, (grid_area_.width() + gap_w) / (shell + gap_w));
-    cell_w_ = std::max(1, grid_area_.width() / cols_);
-    // Icons only on the bottom screen (the top screen names the selection).
-    cell_h_ = shell + gap_w;
+int DualPaneStyle::PageCount() const {
+    return std::max(1, (static_cast<int>(items_.size()) + per_page_ - 1) / per_page_);
+}
+
+int DualPaneStyle::ShownPage() const {
+    const int w = std::max(1, grid_area_.width());
+    return std::clamp(static_cast<int>(std::lround(page_scroll_ / w)), 0, PageCount() - 1);
+}
+
+QRect DualPaneStyle::ArrowRect(bool right) const {
+    // A slim tab at the screen's side, scaled a little with the screen.
+    const qreal s = std::clamp(grid_pane_.height() / 420.0, 0.7, 1.4);
+    const int aw = static_cast<int>(std::lround(24 * s));
+    const int ah = static_cast<int>(std::lround(84 * s));
+    const int x = right ? grid_pane_.right() + 1 - aw : grid_pane_.left();
+    return QRect(x, grid_pane_.center().y() - ah / 2, aw, ah);
+}
+
+void DualPaneStyle::TurnPage(int step) {
+    if (items_.empty()) {
+        return;
+    }
+    const int page = std::clamp(ShownPage() + step, 0, PageCount() - 1);
+    if (page == ShownPage()) {
+        return;
+    }
+    // The same place on the other page, or its last game.
+    const int k = current_ < 0 ? 0 : current_ % per_page_;
+    const int row = std::min(static_cast<int>(items_.size()) - 1, page * per_page_ + k);
+    SetCurrentRow(row, true, true);
 }
 
 QRect DualPaneStyle::CellRect(int row) const {
-    const int col = row % cols_;
-    const int line = row / cols_;
-    return QRect(grid_area_.left() + col * cell_w_, grid_area_.top() + line * cell_h_ - scroll_,
-                 cell_w_, cell_h_);
+    // Pages side by side like Channels, each filled row by row, the rows centred in the screen.
+    const int page = row / per_page_;
+    const int k = row % per_page_;
+    return QRect(grid_area_.left() + page * grid_area_.width() + (k % cols_) * cell_w_ -
+                     static_cast<int>(std::lround(page_scroll_)),
+                 PageTop(page) + (k / cols_) * cell_h_, cell_w_, cell_h_);
+}
+
+int DualPaneStyle::PageTop([[maybe_unused]] int page) const {
+    // A fixed grid from the top left, like Channels and Canvas: a short page keeps its rows at
+    // the top.
+    return grid_area_.top();
 }
 
 QRectF DualPaneStyle::ShellRect(int row) const {
@@ -328,33 +388,39 @@ int DualPaneStyle::RowAt(const QPoint& pos) const {
         return -1;
     }
     const int col = (pos.x() - grid_area_.left()) / cell_w_;
-    const int line = (pos.y() - grid_area_.top() + scroll_) / cell_h_;
-    if (col < 0 || col >= cols_ || line < 0) {
+    const int y = pos.y() - PageTop(ShownPage());
+    const int line = y < 0 ? -1 : y / cell_h_;
+    if (col < 0 || col >= cols_ || line < 0 || line >= lines_) {
         return -1;
     }
-    const int row = line * cols_ + col;
+    const int row = ShownPage() * per_page_ + line * cols_ + col;
     return row < static_cast<int>(items_.size()) ? row : -1;
 }
 
 void DualPaneStyle::ClampScroll() {
-    const int lines = (static_cast<int>(items_.size()) + cols_ - 1) / std::max(1, cols_);
-    const int content = lines * cell_h_;
-    const int max_scroll = std::max(0, content - grid_area_.height());
-    scroll_ = std::clamp(scroll_, 0, max_scroll);
+    page_scroll_ = std::clamp(page_scroll_, 0.0,
+                              static_cast<qreal>((PageCount() - 1) * grid_area_.width()));
 }
 
-void DualPaneStyle::EnsureVisible() {
-    if (current_ < 0 || grid_area_.height() <= 0) {
+void DualPaneStyle::EnsureVisible(bool animate) {
+    if (current_ < 0 || grid_area_.width() <= 0) {
         return;
     }
-    const int top = (current_ / cols_) * cell_h_;
-    const int bottom = top + cell_h_;
-    if (top < scroll_) {
-        scroll_ = top;
-    } else if (bottom > scroll_ + grid_area_.height()) {
-        scroll_ = bottom - grid_area_.height();
+    const qreal target = static_cast<qreal>((current_ / per_page_) * grid_area_.width());
+    const qreal end =
+        page_anim_.state() == QAbstractAnimation::Running ? page_anim_.endValue().toReal()
+                                                           : page_scroll_;
+    if (std::abs(end - target) < 0.5) {
+        return;
     }
-    ClampScroll();
+    page_anim_.stop();
+    if (!animate || !isVisible()) {
+        page_scroll_ = target;
+        return;
+    }
+    page_anim_.setStartValue(page_scroll_);
+    page_anim_.setEndValue(target);
+    StartAnimation(page_anim_);
 }
 
 void DualPaneStyle::SetCurrentRow(int row, bool emit_signal, bool animate) {
@@ -375,9 +441,9 @@ void DualPaneStyle::SetCurrentRow(int row, bool emit_signal, bool animate) {
     previous_ = animate ? old_shown : QPersistentModelIndex{};
     fade_value_ = previous_.isValid() ? 0.0 : 1.0;
     if (previous_.isValid()) {
-        fade_.start();
+        StartAnimation(fade_);
     }
-    EnsureVisible();
+    EnsureVisible(animate);
     update();
     if (emit_signal) {
         emit CurrentChanged(CurrentIndex());
@@ -523,14 +589,18 @@ void DualPaneStyle::DrawGrid(QPainter& painter, const QRect& dirty) {
     painter.save();
     painter.setClipRect(grid_area_);
     const int total = static_cast<int>(items_.size());
-    const int first_line = std::max(0, scroll_ / cell_h_);
-    const int last_line = (scroll_ + grid_area_.height()) / cell_h_;
-    for (int line = first_line; line <= last_line; ++line) {
-        for (int col = 0; col < cols_; ++col) {
-            const int row = line * cols_ + col;
-            if (row >= total) {
-                break;
-            }
+    // The games in view: the pages a slide shows.
+    std::vector<int> rows;
+    {
+        const qreal w = std::max(1, grid_area_.width());
+        const int first = std::max(0, static_cast<int>(std::floor(page_scroll_ / w)));
+        const int last = std::min(PageCount() - 1, static_cast<int>(std::ceil(page_scroll_ / w)));
+        for (int row = first * per_page_; row < std::min(total, (last + 1) * per_page_); ++row) {
+            rows.push_back(row);
+        }
+    }
+    for (const int row : rows) {
+        {
             const QModelIndex index(items_[static_cast<size_t>(row)]);
             if (!index.isValid()) {
                 continue;
@@ -593,21 +663,58 @@ void DualPaneStyle::DrawGrid(QPainter& painter, const QRect& dirty) {
     }
     painter.restore();
 
-    const int lines = (total + cols_ - 1) / std::max(1, cols_);
-    const int content = lines * cell_h_;
-    if (content > grid_area_.height() && grid_area_.height() > 0 &&
-        dirty.right() >= grid_pane_.right() - 8) {
-        const qreal ratio = static_cast<qreal>(grid_area_.height()) / content;
-        const int bar_h = std::max(24, static_cast<int>(grid_area_.height() * ratio));
-        const int range = grid_area_.height() - bar_h;
-        const int max_scroll = content - grid_area_.height();
-        const int y = grid_area_.top() + (max_scroll > 0 ? range * scroll_ / max_scroll : 0);
-        QColor bar = pal.text().color();
-        bar.setAlpha(70);
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(bar);
-        painter.drawRoundedRect(QRect(grid_pane_.right() - 8, y, 4, bar_h), 2, 2);
+    {
+        // Page arrows while there is a page to that side.
+        const int page = ShownPage();
+        for (const bool right : {false, true}) {
+            if (right ? page >= PageCount() - 1 : page <= 0) {
+                continue;
+            }
+            const QRectF a = ArrowRect(right);
+            if (!a.toAlignedRect().adjusted(-6, -6, 6, 6).intersects(dirty)) {
+                continue;
+            }
+            // Concept: a tab on the screen's side with rounded inner corners and an arrow in
+            // it. Here in the icon shells' material (their fill and hairline edge), so it
+            // belongs to the screen instead of standing out.
+            QPainterPath tab;
+            const qreal radius = a.width() * 0.95;
+            tab.addRoundedRect(right ? a.adjusted(0, 0, a.width(), 0)
+                                     : a.adjusted(-a.width(), 0, 0, 0),
+                               radius, radius);
+            QPainterPath screen;
+            screen.addRoundedRect(QRectF(grid_pane_), ScreenRadius, ScreenRadius);
+            tab = tab.intersected(screen);
+            QColor fill = dark ? QColor(255, 255, 255, 18) : QColor(255, 255, 255, 230);
+            QColor edge = pal.text().color();
+            edge.setAlpha(dark ? 40 : 28);
+            painter.save();
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(QColor(0, 0, 0, dark ? 60 : 40));
+            painter.drawPath(tab.translated(0, a.height() * 0.015 + 1));
+            painter.setPen(QPen(edge, 1));
+            painter.setBrush(fill);
+            painter.drawPath(tab);
+            // A chevron pointing out of the screen.
+            const qreal cw = a.width() * 0.3;
+            const qreal ch = a.width() * 0.32;
+            const QPointF c(a.center().x() + (right ? a.width() * 0.06 : -a.width() * 0.06),
+                            a.center().y());
+            const qreal dir = right ? 1.0 : -1.0;
+            QPainterPath arrow;
+            arrow.moveTo(c.x() - dir * cw / 2, c.y() - ch);
+            arrow.lineTo(c.x() + dir * cw / 2, c.y());
+            arrow.lineTo(c.x() - dir * cw / 2, c.y() + ch);
+            QColor ink = LibraryStyleContext::MutedText(pal);
+            ink.setAlpha(230);
+            painter.setBrush(Qt::NoBrush);
+            painter.setPen(QPen(ink, std::max(2.0, a.width() * 0.1), Qt::SolidLine, Qt::RoundCap,
+                                Qt::RoundJoin));
+            painter.drawPath(arrow);
+            painter.restore();
+        }
     }
+
 }
 
 void DualPaneStyle::paintEvent(QPaintEvent* event) {
@@ -623,7 +730,8 @@ void DualPaneStyle::paintEvent(QPaintEvent* event) {
 
     // Both screens are the same every frame: draw them once per size and palette.
     const qreal dpr = devicePixelRatioF();
-    const QString pane_key = QStringLiteral("%1x%2|%3|%4|%5")
+    const QString pane_key = QStringLiteral("%1x%2|%3|%4|%5|%6")
+                                 .arg(side_by_side_ ? 1 : 0)
                                  .arg(width())
                                  .arg(height())
                                  .arg(dpr)
@@ -695,7 +803,7 @@ void DualPaneStyle::paintEvent(QPaintEvent* event) {
         QFont hint_font = font();
         hint_font.setPixelSize(11);
         hint_font.setBold(true);
-        const auto hints = LibraryStyleContext::StandardHints(tr("Size"));
+        const auto hints = LibraryStyleContext::StandardHints(tr("Layout"));
         const qreal radius = 7.0;
         const qreal hints_w = LibraryStyleContext::HintsWidth(hints, hint_font, radius);
         if (hints_w <= top_rect_.width() - 2 * PanePad) {
@@ -751,6 +859,53 @@ void DualPaneStyle::keyPressEvent(QKeyEvent* event) {
     const int count = static_cast<int>(items_.size());
     const int page = std::max(1, grid_area_.height() / std::max(1, cell_h_)) * cols_;
     int row = current_ < 0 ? 0 : current_;
+    {
+        // Pages side by side: Left/Right run on to the next page, Up/Down stay on the page.
+        const int k = row % per_page_;
+        const int line = k / cols_;
+        const int col = k % cols_;
+        const int page_start = row - k;
+        switch (event->key()) {
+        case Qt::Key_Left:
+            if (col > 0) {
+                row -= 1;
+            } else if (page_start > 0) {
+                row = page_start - per_page_ + line * cols_ + cols_ - 1;
+            } else if (row > 0) {
+                row -= 1;
+            }
+            break;
+        case Qt::Key_Right:
+            if (col < cols_ - 1 && row + 1 < count) {
+                row += 1;
+            } else if (page_start + per_page_ < count) {
+                row = std::min(count - 1, page_start + per_page_ + line * cols_);
+            } else if (row + 1 < count) {
+                row += 1;
+            }
+            break;
+        case Qt::Key_Up:
+            row = line > 0 ? row - cols_ : row;
+            break;
+        case Qt::Key_Down:
+            row = line < lines_ - 1 && row + cols_ < count ? row + cols_ : row;
+            break;
+        case Qt::Key_PageUp:
+            TurnPage(-1);
+            return;
+        case Qt::Key_PageDown:
+            TurnPage(1);
+            return;
+        default:
+            row = -1;
+            break;
+        }
+        if (row >= 0) {
+            SetCurrentRow(row, true, !event->isAutoRepeat());
+            return;
+        }
+        row = current_ < 0 ? 0 : current_;
+    }
     switch (event->key()) {
     case Qt::Key_Left:
         row = std::max(0, row - 1);
@@ -795,6 +950,19 @@ void DualPaneStyle::keyPressEvent(QKeyEvent* event) {
 
 void DualPaneStyle::mousePressEvent(QMouseEvent* event) {
     setFocus();
+    if (event->button() == Qt::LeftButton) {
+        const int page = ShownPage();
+        if (page > 0 &&
+            ArrowRect(false).adjusted(-6, -6, 6, 6).contains(event->position().toPoint())) {
+            TurnPage(-1);
+            return;
+        }
+        if (page < PageCount() - 1 &&
+            ArrowRect(true).adjusted(-6, -6, 6, 6).contains(event->position().toPoint())) {
+            TurnPage(1);
+            return;
+        }
+    }
     const int row = RowAt(event->position().toPoint());
     if (row < 0) {
         LibraryStyleView::mousePressEvent(event);
@@ -819,17 +987,12 @@ void DualPaneStyle::mouseDoubleClickEvent(QMouseEvent* event) {
 }
 
 void DualPaneStyle::wheelEvent(QWheelEvent* event) {
-    int delta = 0;
-    if (!event->pixelDelta().isNull()) {
-        delta = -event->pixelDelta().y();
-    } else {
-        delta = -event->angleDelta().y() * cell_h_ / 240;
-    }
-    const int before = scroll_;
-    scroll_ += delta;
-    ClampScroll();
-    if (scroll_ != before) {
-        update(grid_pane_);
+    // A page per notch (either wheel axis).
+    wheel_pages_ += event->angleDelta().y() + event->angleDelta().x();
+    while (std::abs(wheel_pages_) >= 120) {
+        const int step = wheel_pages_ > 0 ? -1 : 1;
+        wheel_pages_ += step * 120;
+        TurnPage(step);
     }
     event->accept();
 }

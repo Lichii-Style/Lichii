@@ -258,7 +258,7 @@ void CarouselStyle::SetShowInfo(bool show) {
 QString CarouselStyle::CycleOption() {
     flat_ = !flat_;
     update();
-    return flat_ ? tr("Covers: flat") : tr("Covers: tiles");
+    return flat_ ? tr("Layout: flat") : tr("Layout: tilted");
 }
 
 void CarouselStyle::ScheduleRebuild() {
@@ -369,7 +369,7 @@ void CarouselStyle::MoveSteps(int step, bool animate, int duration_ms) {
     if (animate) {
         progress_ = 0.0;
         animation_->setDuration(duration_ms);
-        animation_->start();
+        StartAnimation(*animation_);
     } else {
         position_ = target_position_;
         progress_ = 1.0;
@@ -1045,7 +1045,7 @@ void CarouselStyle::paintEvent(QPaintEvent* event) {
     PaintDots(painter, m);
     if (dirty.bottom() >= height() - LibraryStyleContext::HintPillReserve) {
         LibraryStyleContext::PaintHintPill(
-            &painter, rect(), LibraryStyleContext::StandardHints(tr("Covers")),
+            &painter, rect(), LibraryStyleContext::StandardHints(tr("Layout")),
             LibraryStyleContext::IsDark(palette()));
     }
 }

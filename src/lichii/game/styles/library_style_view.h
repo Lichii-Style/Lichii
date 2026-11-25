@@ -5,6 +5,7 @@
 
 #include <vector>
 
+#include <QAbstractAnimation>
 #include <QModelIndex>
 #include <QPoint>
 #include <QString>
@@ -46,6 +47,49 @@ public:
     virtual QString CycleOption() {
         return {};
     }
+    /// Whether the style's option is on (see CycleOption); the game list keeps it per style.
+    virtual bool OptionOn() const {
+        return false;
+    }
+    void SetOptionOn(bool on) {
+        if (OptionOn() != on) {
+            CycleOption();
+        }
+    }
+
+    /// While one lives, changes come from outside the view (the game list restoring the
+    /// selection after a style switch, a search jump): every animation lands at its end at once.
+    /// One rule for all styles, so none slides from the first game to the restored one.
+    class Quiet {
+    public:
+        explicit Quiet(LibraryStyleView* view) : view_{view}, was_{view->quiet_} {
+            view_->quiet_ = true;
+        }
+        ~Quiet() {
+            view_->quiet_ = was_;
+        }
+        Quiet(const Quiet&) = delete;
+        Quiet& operator=(const Quiet&) = delete;
+
+    private:
+        LibraryStyleView* view_;
+        bool was_;
+    };
+
+protected:
+    /// Every style starts its animations here. Quiet, or not shown yet: the animation runs to its
+    /// end at once, so the view ends up in the same state (and the same signals fire) without
+    /// the movement.
+    void StartAnimation(QAbstractAnimation& animation) {
+        animation.start();
+        if ((quiet_ || !isVisible()) && animation.totalDuration() >= 0) { // not endless loops
+            animation.setCurrentTime(animation.totalDuration());
+        }
+    }
+
+public:
+private:
+    bool quiet_ = false;
 
 signals:
     void LaunchRequested(const QModelIndex& index);

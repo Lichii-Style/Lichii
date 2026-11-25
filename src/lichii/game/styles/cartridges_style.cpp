@@ -928,6 +928,8 @@ void CartridgesStyle::paintEvent([[maybe_unused]] QPaintEvent* event) {
         // The selected cart always names itself.
         DrawNameBubble(painter, selected, m, Place(selected, m, true));
     }
+    // In view coordinates: the cartridges above are drawn scrolled.
+    painter.translate(0, scroll);
     LibraryStyleContext::PaintHintPill(&painter, rect(),
                                        LibraryStyleContext::StandardHints(tr("Layout")),
                                        IsDark(palette()));

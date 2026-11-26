@@ -55,31 +55,10 @@ GameListItemType TypeOf(const QModelIndex& index) {
     return index.data(GameListItem::TypeRole).value<GameListItemType>();
 }
 
-QColor HueColor(uint seed, int saturation, int lightness) {
-    return QColor::fromHsl(static_cast<int>(seed % 360), saturation, lightness);
-}
-
-void DrawPlaceholder(QPainter* painter, const QRectF& rect, const QString& title, uint seed,
-                     bool dark) {
-    QLinearGradient grad(rect.topLeft(), rect.bottomRight());
-    grad.setColorAt(0.0, HueColor(seed, dark ? 90 : 120, dark ? 70 : 150));
-    grad.setColorAt(1.0, HueColor(seed + 40, dark ? 100 : 130, dark ? 40 : 100));
-    painter->fillRect(rect, grad);
-    const QString initial = title.trimmed().left(1).toUpper();
-    if (initial.isEmpty()) {
-        return;
-    }
-    QFont font = painter->font();
-    font.setBold(true);
-    font.setPixelSize(std::max(12, static_cast<int>(rect.height() * 0.42)));
-    painter->setFont(font);
-    painter->setPen(QColor(255, 255, 255, 190));
-    painter->drawText(rect, Qt::AlignCenter, initial);
-}
-
 } // namespace
 
 CanvasStyle::CanvasStyle(QWidget* parent) : LibraryStyleView(parent) {
+    LibraryStyleContext::LoadFonts(); // Nunito for the captions, as in the concept
     setObjectName(QStringLiteral("canvasLibraryStyle"));
     setFocusPolicy(Qt::StrongFocus);
     setAutoFillBackground(false);
@@ -459,10 +438,13 @@ QPixmap CanvasStyle::TileArt(const QModelIndex& index, int side, qreal radius, b
                             scaled.width() / ratio, scaled.height() / ratio),
                      sized, QRectF(sized.rect()));
     } else {
-        const qulonglong program_id = index.data(GameListItemPath::ProgramIdRole).toULongLong();
-        const uint seed = program_id != 0 ? static_cast<uint>(qHash(program_id))
-                                          : static_cast<uint>(qHash(title));
-        DrawPlaceholder(&p, rectf, title, seed, dark);
+        // No art: the coloured placeholder with initials every style uses, its initials in
+        // Canvas's Nunito Black like the captions.
+        QFont initials = font();
+        initials.setFamilies({QStringLiteral("Nunito"), initials.family()});
+        initials.setWeight(QFont::Black);
+        LibraryStyleContext::PaintPlaceholderArt(&p, rectf.toAlignedRect(), title, palette(),
+                                                 &initials);
     }
     p.end();
     art_cache.insert(key, new QPixmap(pixmap),

@@ -343,6 +343,7 @@ endif()
 
 file(GLOB_RECURSE ICONS ${PROJECT_SOURCE_DIR}/dist/icons/*)
 file(GLOB_RECURSE THEMES ${PROJECT_SOURCE_DIR}/dist/qt_themes/*)
+file(GLOB_RECURSE FONTS ${PROJECT_SOURCE_DIR}/dist/fonts/*)
 
 if (ENABLE_UPDATE_CHECKER)
     target_compile_definitions(lichii PUBLIC ENABLE_UPDATE_CHECKER)
@@ -434,7 +435,8 @@ target_sources(lichii
     PRIVATE
         ${ICONS}
         ${LANGUAGES}
-        ${THEMES})
+        ${THEMES}
+        ${FONTS})
 
 # TODO(crueter): Move Assets.car/icon/icns handling to its own Module.
 if (APPLE)

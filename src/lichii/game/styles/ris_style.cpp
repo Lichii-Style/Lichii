@@ -9,7 +9,6 @@
 #include <QAbstractItemModel>
 #include <QContextMenuEvent>
 #include <QEasingCurve>
-#include <QFontDatabase>
 #include <QFontMetrics>
 #include <QKeyEvent>
 #include <QLinearGradient>
@@ -50,14 +49,7 @@ bool IsFolder(GameListItemType type) {
 /// Chakra Petch ships with the RIS theme resources; the style uses it with any theme. It has
 /// no CJK glyphs: every font set from it falls back to system CJK fonts (titles in Japanese).
 QString LoadDisplayFamily() {
-    static const QString family = [] {
-        const int id =
-            QFontDatabase::addApplicationFont(QStringLiteral(":/ris/fonts/ChakraPetch-Bold.ttf"));
-        QFontDatabase::addApplicationFont(QStringLiteral(":/ris/fonts/ChakraPetch-SemiBold.ttf"));
-        const QStringList families = QFontDatabase::applicationFontFamilies(id);
-        return families.isEmpty() ? QString{} : families.first();
-    }();
-    return family;
+    return LibraryStyleContext::LoadFonts();
 }
 
 QFont MonoFont(int pixel_size) {
@@ -378,7 +370,13 @@ QPixmap RisStyle::CachedCover(const QModelIndex& index, const QSize& size) const
                             .arg(palette().highlight().color().rgb());
     QPixmap pixmap;
     if (!QPixmapCache::find(key, &pixmap)) {
-        pixmap = LibraryStyleContext::Cover(index, size, palette());
+        // Initials in the RIS display font, like its headings.
+        QFont initials = font();
+        if (!display_family.isEmpty()) {
+            LibraryStyleContext::SetFamilyWithFallbacks(initials, display_family);
+        }
+        initials.setWeight(QFont::Bold);
+        pixmap = LibraryStyleContext::Cover(index, size, palette(), &initials);
         QPixmapCache::insert(key, pixmap);
     }
     return pixmap;

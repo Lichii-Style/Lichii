@@ -9,6 +9,7 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QFileInfo>
+#include <QFontDatabase>
 #include <QFontMetrics>
 #include <QTransform>
 #include <QHash>
@@ -165,7 +166,7 @@ QString LibraryStyleContext::InfoLine(const QModelIndex& index) {
 }
 
 QPixmap LibraryStyleContext::Cover(const QModelIndex& index, const QSize& size,
-                                   const QPalette& palette) {
+                                   const QPalette& palette, const QFont* initials_font) {
     if (!index.isValid() || size.isEmpty()) {
         return {};
     }
@@ -196,7 +197,7 @@ QPixmap LibraryStyleContext::Cover(const QModelIndex& index, const QSize& size,
             title = QFileInfo(name.data(GameListItemPath::FullPathRole).toString())
                         .completeBaseName();
         }
-        PaintPlaceholderArt(&painter, result.rect(), title, palette);
+        PaintPlaceholderArt(&painter, result.rect(), title, palette, initials_font);
         return result;
     }
     QSize scaled = art.size();
@@ -208,7 +209,8 @@ QPixmap LibraryStyleContext::Cover(const QModelIndex& index, const QSize& size,
 }
 
 void LibraryStyleContext::PaintPlaceholderArt(QPainter* painter, const QRect& rect,
-                                              const QString& title, const QPalette& palette) {
+                                              const QString& title, const QPalette& palette,
+                                              const QFont* initials_font) {
     const int hue = static_cast<int>(qHash(title) % 360);
     const bool dark = IsDark(palette);
     QLinearGradient gradient(rect.topLeft(), rect.bottomRight());
@@ -228,8 +230,10 @@ void LibraryStyleContext::PaintPlaceholderArt(QPainter* painter, const QRect& re
     if (initials.isEmpty()) {
         initials = QStringLiteral("?");
     }
-    QFont font = painter->font();
-    font.setBold(true);
+    QFont font = initials_font != nullptr ? *initials_font : painter->font();
+    if (initials_font == nullptr) {
+        font.setBold(true);
+    }
     font.setPixelSize(std::max(10, std::min(rect.width(), rect.height()) * 2 / 5));
     painter->save();
     painter->setFont(font);
@@ -1100,5 +1104,20 @@ QPixmap LibraryStyleContext::UserAvatar() {
     return cached;
 }
 
+
+QString LibraryStyleContext::LoadFonts() {
+    static const QString chakra = [] {
+        // Nunito (SIL OFL 1.1): Canvas titles in Black, its info in ExtraBold.
+        QFontDatabase::addApplicationFont(QStringLiteral(":/fonts/nunito/Nunito-Black.ttf"));
+        QFontDatabase::addApplicationFont(QStringLiteral(":/fonts/nunito/Nunito-ExtraBold.ttf"));
+        // Chakra Petch (SIL OFL 1.1) ships with the RIS theme resources.
+        const int id =
+            QFontDatabase::addApplicationFont(QStringLiteral(":/ris/fonts/ChakraPetch-Bold.ttf"));
+        QFontDatabase::addApplicationFont(QStringLiteral(":/ris/fonts/ChakraPetch-SemiBold.ttf"));
+        const QStringList families = QFontDatabase::applicationFontFamilies(id);
+        return families.isEmpty() ? QString{} : families.first();
+    }();
+    return chakra;
+}
 
 } // namespace LibraryStyles

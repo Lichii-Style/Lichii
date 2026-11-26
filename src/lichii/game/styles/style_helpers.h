@@ -89,11 +89,15 @@ public:
 
     /// Cover art at `size` (cropped to fill, aspect kept). Games without art get a neutral
     /// gradient with the title initials; the "Add games folder" row gets a folder with a plus.
-    static QPixmap Cover(const QModelIndex& index, const QSize& size, const QPalette& palette);
+    /// `initials_font`: see PaintPlaceholderArt (a style's own font for the initials).
+    static QPixmap Cover(const QModelIndex& index, const QSize& size, const QPalette& palette,
+                         const QFont* initials_font = nullptr);
     /// The art of a game without an icon: a gradient picked from the title, with its initials.
     /// No console art, so it fits every style and the Modern grid.
+    /// `font`: the family and weight for the initials (Canvas: Nunito); the painter's bold font
+    /// otherwise. The size always follows the rect.
     static void PaintPlaceholderArt(QPainter* painter, const QRect& rect, const QString& title,
-                                    const QPalette& palette);
+                                    const QPalette& palette, const QFont* font = nullptr);
 
     static bool IsDark(const QPalette& palette);
     /// Selection colour of the theme.
@@ -178,6 +182,9 @@ public:
     /// Picture of the active profile, or the default account picture; reloaded only when the
     /// profile or its image file changes.
     static QPixmap UserAvatar();
+    /// Registers every font Lichii ships for the styles and themes once: Nunito (Canvas) and
+    /// Chakra Petch (RIS theme and style). Returns Chakra Petch's family name.
+    static QString LoadFonts();
     /// True for the shoulder buttons (L, R, LB, RB, ZL, ZR): drawn as rounded bars, not discs.
     static bool IsShoulderGlyph(const QString& glyph);
     /// Width of one button glyph: a disc of `radius`, or a wider bar for a shoulder button.

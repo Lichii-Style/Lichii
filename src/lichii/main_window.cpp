@@ -52,6 +52,7 @@
 #include "lichii/game/game_list.h"
 #include "lichii/game/common.h"
 #include "lichii/game/styles/library_style_registry.h"
+#include "lichii/game/styles/style_helpers.h"
 #include "lichii/mod_store/mod_store_dialog.h"
 #include "lichii/nup_dialogs.h"
 #include "lichii/recommended_settings_dialog.h"
@@ -7358,13 +7359,7 @@ static QPalette RisPalette() {
 
 // The RIS theme ships Chakra Petch for its headings; loaded once, the first time RIS is used.
 static void LoadRisFonts() {
-    static bool loaded = false;
-    if (loaded) {
-        return;
-    }
-    loaded = true;
-    QFontDatabase::addApplicationFont(QStringLiteral(":/ris/fonts/ChakraPetch-SemiBold.ttf"));
-    QFontDatabase::addApplicationFont(QStringLiteral(":/ris/fonts/ChakraPetch-Bold.ttf"));
+    LibraryStyles::LibraryStyleContext::LoadFonts(); // one place registers every bundled font
 }
 
 void MainWindow::UpdateMenuIcons() {

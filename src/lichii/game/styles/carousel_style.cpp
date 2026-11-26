@@ -601,20 +601,9 @@ QPixmap CarouselStyle::CoverPixmap(int row, int side) {
                 art.scaled(px, px, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
             p.drawPixmap((px - scaled.width()) / 2, (px - scaled.height()) / 2, scaled);
         } else {
-            const QColor base = HashColor(TitleFor(row));
-            QLinearGradient gradient(0, 0, 0, px);
-            gradient.setColorAt(0.0, base.lighter(130));
-            gradient.setColorAt(1.0, base.darker(150));
-            p.fillRect(QRectF(0, 0, px, px), gradient);
-            const QString title = TitleFor(row).trimmed();
-            if (!title.isEmpty()) {
-                QFont font = this->font();
-                font.setPixelSize(std::max(8, static_cast<int>(px * 0.45)));
-                font.setBold(true);
-                p.setFont(font);
-                p.setPen(QColor(255, 255, 255, 220));
-                p.drawText(QRectF(0, 0, px, px), Qt::AlignCenter, title.left(1).toUpper());
-            }
+            // No art: the coloured placeholder with initials every style uses.
+            LibraryStyleContext::PaintPlaceholderArt(&p, QRect(0, 0, px, px), TitleFor(row),
+                                                     palette());
         }
     }
     QPixmap pixmap = QPixmap::fromImage(image);

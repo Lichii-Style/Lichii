@@ -42,19 +42,6 @@ LibraryStyleView* Make(QWidget* p) {
 constexpr int SidePadding = 28;
 constexpr int FooterBarHeight = 48;
 
-bool IsGameType(GameListItemType type) {
-    return type == GameListItemType::Game;
-}
-
-bool IsFolderType(GameListItemType type) {
-    return type == GameListItemType::CustomDir || type == GameListItemType::SdmcDir ||
-           type == GameListItemType::UserNandDir || type == GameListItemType::SysNandDir;
-}
-
-GameListItemType TypeOf(const QModelIndex& index) {
-    return index.data(GameListItem::TypeRole).value<GameListItemType>();
-}
-
 } // namespace
 
 CanvasStyle::CanvasStyle(QWidget* parent) : LibraryStyleView(parent) {
@@ -140,25 +127,9 @@ void CanvasStyle::ScheduleRebuild() {
 void CanvasStyle::Rebuild() {
     const QPersistentModelIndex previous{IndexAt(current)};
     entries.clear();
-    if (model) {
-        // Games are shown flat: top level games plus the games inside each folder row.
-        // Favorites and "add folder" rows are not tiles.
-        const int top_rows = model->rowCount();
-        for (int r = 0; r < top_rows; ++r) {
-            const QModelIndex idx = model->index(r, 0);
-            const GameListItemType type = TypeOf(idx);
-            if (IsGameType(type)) {
-                entries.emplace_back(idx);
-            } else if (IsFolderType(type)) {
-                const int children = model->rowCount(idx);
-                for (int c = 0; c < children; ++c) {
-                    const QModelIndex child = model->index(c, 0, idx);
-                    if (IsGameType(TypeOf(child))) {
-                        entries.emplace_back(child);
-                    }
-                }
-            }
-        }
+    // The games, flat and favorites first (shared by every style).
+    for (const QModelIndex& game : LibraryStyleContext::Games(model)) {
+        entries.emplace_back(game);
     }
 
     int new_current = -1;
@@ -537,6 +508,9 @@ void CanvasStyle::paintEvent([[maybe_unused]] QPaintEvent* event) {
             {
                 const QPixmap art = TileArt(index, layout.tile, radius, dark);
                 p.drawPixmap(rectf, art, QRectF(QPointF(0, 0), QSizeF(art.size())));
+                if (LibraryStyleContext::IsFavorite(index)) {
+                    LibraryStyleContext::PaintFavoriteHeart(&p, rectf);
+                }
             }
             p.save();
             if (selected && (show_names || show_info)) {

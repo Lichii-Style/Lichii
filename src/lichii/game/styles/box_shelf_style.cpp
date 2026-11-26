@@ -46,13 +46,6 @@ bool IsGame(const QModelIndex& index) {
     return ItemType(index) == static_cast<int>(GameListItemType::Game);
 }
 
-bool IsFolderType(int type) {
-    return type == static_cast<int>(GameListItemType::CustomDir) ||
-           type == static_cast<int>(GameListItemType::SdmcDir) ||
-           type == static_cast<int>(GameListItemType::UserNandDir) ||
-           type == static_cast<int>(GameListItemType::SysNandDir);
-}
-
 QString TitleOf(const QModelIndex& index) {
     const QString full = index.data(GameListItemPath::TitleRole).toString();
     return full.isEmpty() ? index.data(Qt::DisplayRole).toString().section(QLatin1Char('\n'), 0, 0)
@@ -145,6 +138,16 @@ QPainterPath CaseShape(double w, double h) {
     path.lineTo(0, h);
     path.closeSubpath();
     return path;
+}
+
+/// The favorite heart on top of a sticker stack: a straight heart turned like the stickers
+/// (8 degrees), centred on `center`.
+void DrawStickerHeart(QPainter* p, const QPointF& center, qreal size) {
+    p->save();
+    p->translate(center);
+    p->rotate(8.0);
+    PaintFavoriteHeartAt(p, QPointF(0, 0), size, 0.0);
+    p->restore();
 }
 
 /// Sticker in the Cartridges look: rounded tag, soft shadow, tilted 8 degrees.
@@ -361,23 +364,9 @@ void BoxShelfStyle::RebuildRows() {
         return;
     }
 
-    // Games are shown flat: top level games plus the games inside each folder row. Favorites and
-    // the "add folder" row are not shown.
-    const int top_rows = m_model->rowCount();
-    for (int r = 0; r < top_rows; ++r) {
-        const QModelIndex idx = m_model->index(r, 0);
-        const int type = ItemType(idx);
-        if (type == static_cast<int>(GameListItemType::Game)) {
-            m_entries.emplace_back(idx);
-        } else if (IsFolderType(type)) {
-            const int children = m_model->rowCount(idx);
-            for (int c = 0; c < children; ++c) {
-                const QModelIndex child = m_model->index(c, 0, idx);
-                if (IsGame(child)) {
-                    m_entries.emplace_back(child);
-                }
-            }
-        }
+    // The games, flat and favorites first (shared by every style).
+    for (const QModelIndex& game : LibraryStyleContext::Games(m_model)) {
+        m_entries.emplace_back(game);
     }
     ClampScroll();
 
@@ -736,6 +725,14 @@ void BoxShelfStyle::paintEvent([[maybe_unused]] QPaintEvent* event) {
             }
         }
     }
+    if (m_spines) {
+        // After every spine: a heart over a spine's own top, never under the next one.
+        for (int pos = first_row * m.cols; pos < std::min(count, (last_row + 1) * m.cols); ++pos) {
+            if (pos != selected_pos) {
+                DrawSpineHeart(p, m, pos);
+            }
+        }
+    }
     if (!m_spines && m_show_names) {
         for (int pos = first_row * m.cols; pos < std::min(count, (last_row + 1) * m.cols); ++pos) {
             if (pos != selected_pos) {
@@ -812,25 +809,31 @@ QPixmap BoxShelfStyle::CasePixmap(const QModelIndex& index, const Metrics& m, bo
     const double border = std::max(2.0, 3.0 * u);
     p.fillRect(QRectF(0, 0, w, h), nx2 ? red : clear);
 
-    const auto pill = [&](const QPointF& center, double pw, double ph) {
-        p.setPen(QPen(Qt::white, std::max(1.2, 2.0 * u)));
+    // The neutral glyph, the same as on the cartridges: a rounded square (no console logo),
+    // its line an eighth of its side.
+    const auto pill = [&](const QPointF& center, double ph) {
+        const double pw = ph;
+        p.setPen(QPen(Qt::white, std::max(1.0, ph * 0.125)));
         p.setBrush(Qt::NoBrush);
-        const double r = std::min(pw, ph) * 0.33;
-        p.drawRoundedRect(QRectF(center.x() - pw / 2, center.y() - ph / 2, pw, ph), r, r);
+        p.drawRoundedRect(QRectF(center.x() - pw / 2, center.y() - ph / 2, pw, ph), ph * 0.3,
+                          ph * 0.3);
     };
 
     QRectF art;
     if (nx2) {
         const QRectF band(border, border, w - 2 * border, h * 0.14 - border);
         art = QRectF(border, band.bottom(), w - 2 * border, h - band.bottom() - border);
+        // Proportions of the cartridges' header band: glyph 0.5 of the band, "2" 0.56, gap 0.18.
+        const double bh = band.height();
         QFont two = font();
         two.setBold(true);
-        two.setPixelSize(std::max(7, qRound(16.0 * u)));
+        two.setPixelSize(std::max(6, qRound(bh * 0.56)));
         const double two_w = QFontMetricsF(two).horizontalAdvance(QStringLiteral("2"));
-        const double gw = 12.0 * u;
-        const double gap = 3.0 * u;
+        const double ph = bh * 0.5;
+        const double gw = ph;
+        const double gap = bh * 0.18;
         const double x0 = band.center().x() - (gw + gap + two_w) / 2;
-        pill(QPointF(x0 + gw / 2, band.center().y()), gw, 15.0 * u);
+        pill(QPointF(x0 + gw / 2, band.center().y()), ph);
         p.setFont(two);
         p.setPen(Qt::white);
         p.drawText(QRectF(x0 + gw + gap, band.top(), two_w + 2, band.height()),
@@ -842,7 +845,7 @@ QPixmap BoxShelfStyle::CasePixmap(const QModelIndex& index, const Metrics& m, bo
     if (!nx2 && is_game) {
         const double corner = w * 0.3;
         p.fillRect(QRectF(art.left(), art.top(), corner, corner), red);
-        pill(QPointF(art.left() + corner / 2, art.top() + corner / 2), 13.0 * u, 16.0 * u);
+        pill(QPointF(art.left() + corner / 2, art.top() + corner / 2), corner * 0.3);
     }
 
     // Gloss from the top left.
@@ -980,6 +983,7 @@ void BoxShelfStyle::DrawItem(QPainter& p, const Metrics& m, int pos, bool select
     const QRectF target = selected ? r : QRectF(std::round(r.x()), std::round(r.y()), w, h);
     p.drawPixmap(target, pix, QRectF(pix.rect()));
 
+
     if (selected) {
         // The front view's ring: 4 concept px out, 4 px wide.
         const double grow = 4.0 * u;
@@ -990,6 +994,17 @@ void BoxShelfStyle::DrawItem(QPainter& p, const Metrics& m, int pos, bool select
                       Qt::SolidLine, Qt::SquareCap, Qt::MiterJoin));
         p.drawRoundedRect(target.adjusted(-grow, -grow, grow, grow), radius, radius);
         p.restore();
+    }
+
+    if (selected && LibraryStyleContext::IsFavorite(index)) {
+        // On top of the stickers beside the spine (see below), centred over them, as large as on
+        // a case front; after the ring, so the ring never covers it. Unselected spines show
+        // theirs above the spine (DrawSpineHeart).
+        // A fixed place (the stickers' left edges, see below): never moved by which show.
+        const qreal size = FavoriteHeartSize(m.face_w * 0.87);
+        DrawStickerHeart(&p, QPointF(r.right() - w * 0.35 + size * 0.5,
+                                     r.top() + h * 0.17 - size * 0.42),
+                         size);
     }
 
     // Stickers: like Dense Grid, Info shows them on the selected case only, beside its spine.
@@ -1118,6 +1133,21 @@ void BoxShelfStyle::DrawCaseBody(QPainter& p, const CaseView& view, const QModel
 
 }
 
+void BoxShelfStyle::DrawSpineHeart(QPainter& p, const Metrics& m, int pos) {
+    const QModelIndex index = IndexAtPos(pos);
+    if (!index.isValid() || !LibraryStyleContext::IsFavorite(index)) {
+        return;
+    }
+    // An unselected favorite: the heart centred on its own spine's top, poking out above it, so
+    // it is clearly this spine's and no neighbour covers it. As wide as the spine's cell.
+    const QRectF base = ItemRect(m, pos);
+    const double u = m.face_w / 150.0;
+    const double h = m.case_h * 1.04;
+    const double top = base.bottom() - 6.0 * u - h;
+    const qreal size = std::min(FavoriteHeartSize(m.face_w), std::max(14.0, m.cell_w * 1.1));
+    PaintFavoriteHeartAt(&p, QPointF(base.center().x(), top - size * 0.12), size);
+}
+
 void BoxShelfStyle::DrawFront(QPainter& p, const Metrics& m, int pos, bool selected) {
     const QModelIndex index = IndexAtPos(pos);
     if (!index.isValid()) {
@@ -1190,6 +1220,20 @@ void BoxShelfStyle::DrawFront(QPainter& p, const Metrics& m, int pos, bool selec
                                  std::round(view.origin.y() + bounds.top())),
                          *cached);
         }
+    }
+
+    // Favorites: the heart on top of where the stickers sit (at the case's right edge), upright
+    // in screen space like them. Not in the case pixmaps, so a favorite toggle only repaints.
+    if (LibraryStyleContext::IsFavorite(index)) {
+        // Placed like on the cartridges, in the case's proportions: a fixed place past the right
+        // edge (where the stickers' right edges sit), never moved by which stickers show.
+        const qreal size = FavoriteHeartSize(w * 0.87);
+        QPointF anchor =
+            front.at(1) + (front.at(2) - front.at(1)) * 0.17 + QPointF(w * 0.07, 0);
+        if (selected) {
+            anchor += QPointF(6.0 * u, -22.0 * u);
+        }
+        DrawStickerHeart(&p, QPointF(anchor.x() - size * 0.5, anchor.y() - size * 0.42), size);
     }
 
     // Stickers: like Dense Grid, Info shows them on the selected case only.

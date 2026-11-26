@@ -104,6 +104,7 @@ private:
     /// The cover with its reflection under it in one pixmap, so a cover in motion takes one
     /// perspective draw instead of two.
     QPixmap WithReflection(const QPixmap& cover, qreal side);
+    void PaintCoverHeart(QPainter& painter, int row, const QTransform& transform, qreal side);
     const QPixmap& ShadowFor(qreal side, bool selected);
     void PaintCover(QPainter& painter, const Metrics& metrics, int row, qreal offset);
     void PaintTexts(QPainter& painter, const Metrics& metrics);

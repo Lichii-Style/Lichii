@@ -7,6 +7,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <array>
 #include <map>
 #include <string>
@@ -18,6 +19,7 @@
 #include <QCoreApplication>
 #include <QFileInfo>
 #include <QImage>
+#include <QLinearGradient>
 #include <QMutex>
 #include <QObject>
 #include <QPainter>
@@ -75,6 +77,99 @@ static QPixmap GetDefaultIcon(u32 size) {
                       QImage(QStringLiteral(":/lichii/icons/menu_gamepad@2x.png")));
     painter.end();
     return QPixmap::fromImage(icon);
+}
+
+inline bool IsFavoriteProgram(u64 program_id) {
+    return program_id != 0 && UISettings::values.favorited_ids.contains(program_id);
+}
+
+/// The favorite mark everywhere (list, menus, the Favorites row, every library style): a
+/// chubby pink heart sticker with a white border and a soft shadow outside it. Drawn once per
+/// size and kept. `size`: the pixmap's side in logical pixels. `icon`: upright and filling the
+/// square, for menus, the Favorites row and next to names; otherwise tilted like a sticker on
+/// a cover, with room for its shadow.
+inline QPixmap FavoriteHeart(int size, qreal dpr, bool icon = false, qreal tilt = -10.0) {
+    static QCache<QString, QPixmap> cache{48};
+    static QMutex mutex;
+    size = std::max(8, size);
+    const QString key = QStringLiteral("%1|%2|%3|%4").arg(size).arg(dpr).arg(icon).arg(tilt);
+    const QMutexLocker lock{&mutex};
+    if (const QPixmap* cached = cache.object(key)) {
+        return *cached;
+    }
+    const int px = static_cast<int>(std::ceil(size * dpr));
+    QImage image(px, px, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    {
+        QPainter p(&image);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        // The heart spans x -0.56..0.56, y -0.48..0.42; with its white edge about 1.4 wide.
+        p.translate(px / 2.0, px / 2.0 + (icon ? px * 0.02 : 0.0));
+        const qreal unit = icon ? px / 1.42 : px / 2.0;
+        p.scale(unit, unit);
+        if (!icon) {
+            p.rotate(tilt);
+        }
+        QPainterPath heart;
+        heart.moveTo(0.0, 0.42);
+        heart.cubicTo(-0.25, 0.28, -0.56, 0.08, -0.56, -0.16);
+        heart.cubicTo(-0.56, -0.36, -0.42, -0.48, -0.26, -0.48);
+        heart.cubicTo(-0.13, -0.48, -0.04, -0.40, 0.0, -0.30);
+        heart.cubicTo(0.04, -0.40, 0.13, -0.48, 0.26, -0.48);
+        heart.cubicTo(0.42, -0.48, 0.56, -0.36, 0.56, -0.16);
+        heart.cubicTo(0.56, 0.08, 0.25, 0.28, 0.0, 0.42);
+        heart.closeSubpath();
+        const qreal border = icon ? 0.2 : 0.26; // the white sticker edge (stroke width)
+        // Soft shadow outside the white edge, a little lower: stacked faint widenings.
+        const QPainterPath low = heart.translated(0.0, icon ? 0.05 : 0.13);
+        const int steps = icon ? 3 : 6;
+        const qreal strength = icon ? 0.35 : 0.55;
+        for (int i = steps; i >= 1; --i) {
+            QColor shade(0, 0, 0, static_cast<int>(255 * strength / steps));
+            p.setPen(QPen(shade, border + 0.05 * i, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            p.setBrush(shade);
+            p.drawPath(low);
+        }
+        p.setPen(QPen(Qt::white, border, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        p.setBrush(Qt::white);
+        p.drawPath(heart);
+        QLinearGradient pink(0.0, -0.5, 0.0, 0.5);
+        pink.setColorAt(0.0, QColor(0xff, 0x6f, 0xa8));
+        pink.setColorAt(1.0, QColor(0xe8, 0x2f, 0x72));
+        p.setPen(Qt::NoPen);
+        p.setBrush(pink);
+        p.drawPath(heart);
+    }
+    QPixmap pixmap = QPixmap::fromImage(image);
+    pixmap.setDevicePixelRatio(dpr);
+    cache.insert(key, new QPixmap(pixmap));
+    return pixmap;
+}
+
+/// The heart sticker centred on `center`, `size` wide (one size per few pixels, so a cover in
+/// motion reuses a handful of pixmaps). Upright: drawn in screen space, never through a
+/// perspective transform, which is slow for every cover on every frame.
+/// `tilt`: 0 where the caller turns the painter itself (with the stickers of a cartridge or case).
+inline void PaintFavoriteHeartAt(QPainter* painter, const QPointF& center, qreal size,
+                                 qreal tilt = -10.0) {
+    const int step = std::max(2, static_cast<int>(size / 12));
+    const int px = std::max(12, static_cast<int>(std::lround(size / step)) * step);
+    const qreal dpr = painter->device() != nullptr ? painter->device()->devicePixelRatioF() : 1.0;
+    painter->drawPixmap(QPointF(center.x() - px / 2.0, center.y() - px / 2.0),
+                        FavoriteHeart(px, dpr, false, tilt));
+}
+
+/// The size of the heart on art `side` pixels wide: the same share of the art at every size.
+inline qreal FavoriteHeartSize(qreal side) {
+    return std::max(12.0, side * 0.26);
+}
+
+/// The heart on a cover or tile: in its top left corner, sized with the art.
+inline void PaintFavoriteHeart(QPainter* painter, const QRectF& art) {
+    const qreal side = std::min(art.width(), art.height());
+    const qreal size = FavoriteHeartSize(side);
+    PaintFavoriteHeartAt(painter, QPointF(art.left() + size * 0.5, art.top() + size * 0.5),
+                         size);
 }
 
 static QPixmap RoundedIcon(const QPixmap& picture) {
@@ -136,6 +231,8 @@ public:
  */
 class GameListItemPath : public GameListItem {
 public:
+    /// 0 for a favorite, 1 otherwise: GameListModel::sort puts favorites first by it.
+    static constexpr int FavoriteRankRole = Qt::UserRole + 60;
     static constexpr int TitleRole = SortRole + 1;
     static constexpr int FullPathRole = SortRole + 2;
     static constexpr int ProgramIdRole = SortRole + 3;
@@ -289,6 +386,9 @@ public:
     }
 
     QVariant data(int role) const override {
+        if (role == FavoriteRankRole) {
+            return IsFavoriteProgram(data(ProgramIdRole).toULongLong()) ? 0 : 1;
+        }
         if (role == Qt::DisplayRole || role == SortRole) {
             std::string filename;
             Common::SplitPath(data(FullPathRole).toString().toStdString(), nullptr, &filename,
@@ -533,7 +633,10 @@ public:
     explicit GameListFavorites() {
         setData(type(), TypeRole);
 
-        setData(ThemeIcon("star"), Qt::DecorationRole);
+        setData(FavoriteHeart(IsLichiiTheme() ? 16 : static_cast<int>(
+                                  UISettings::values.folder_icon_size.GetValue()),
+                              2.0, true),
+                Qt::DecorationRole);
         setData(QObject::tr("Favorites"), Qt::DisplayRole);
     }
 

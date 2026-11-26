@@ -91,6 +91,8 @@ private:
     void DrawItem(QPainter& p, const Metrics& m, int pos, bool selected, bool dark);
     /// Front mode: the case turned to show its spine, the selected one facing the viewer.
     void DrawFront(QPainter& p, const Metrics& m, int pos, bool selected);
+    /// The favorite heart of an unselected spine, over its top (drawn after all spines).
+    void DrawSpineHeart(QPainter& p, const Metrics& m, int pos);
     /// Shadow, spine and front of one case as `view` places it; the selected one with its ring.
     void DrawCaseBody(QPainter& p, const CaseView& view, const QModelIndex& index,
                       const Metrics& m, bool selected, bool nx2);

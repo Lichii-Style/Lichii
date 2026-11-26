@@ -81,11 +81,6 @@ bool IsGameType(GameListItemType type) {
     return type == GameListItemType::Game;
 }
 
-bool IsFolderType(GameListItemType type) {
-    return type == GameListItemType::CustomDir || type == GameListItemType::SdmcDir ||
-           type == GameListItemType::UserNandDir || type == GameListItemType::SysNandDir;
-}
-
 GameListItemType TypeOf(const QModelIndex& index) {
     return index.data(GameListItem::TypeRole).value<GameListItemType>();
 }
@@ -98,6 +93,20 @@ bool IsDark(const QPalette& palette) {
 qreal CardMargin(qreal card_w) {
     // At least 22 px: on small carts the stickers move further out past the right edge.
     return std::max(card_w * 0.2, 22.0);
+}
+
+/// The favorite heart on a cartridge (in its own coordinates): on top of the play time and
+/// version stickers, poking out past the right edge like them (see RenderCard).
+void PaintCartridgeHeart(QPainter* painter, qreal w, qreal h) {
+    const qreal size = FavoriteHeartSize(w * 0.87); // the label art's width
+    // Right edge with the stickers' (w * 1.07), its bottom on their top (h * 0.17), turned by
+    // the stickers' tilt: a straight heart, not the tilted one turned once more.
+    const QPointF center(w * 1.07 - size * 0.5, h * 0.17 - size * 0.42);
+    painter->save();
+    painter->translate(center);
+    painter->rotate(StickerTilt);
+    PaintFavoriteHeartAt(painter, QPointF(0, 0), size, 0.0);
+    painter->restore();
 }
 
 QPainterPath BodyPath(qreal w, qreal h) {
@@ -209,18 +218,19 @@ QPixmap CardTemplate(bool nx2, qreal w, qreal h, qreal dpr) {
     const QRectF header(label.left(), label.top(), lw, header_h);
     p.fillRect(header, QColor(0xe6, 0x00, 0x12));
     {
-        const qreal pill_h = header_h * 0.38;
-        const qreal pill_w = pill_h * 1.45;
+        // The neutral glyph, as on the cases: a rounded square (no console logo).
+        const qreal pill_h = header_h * 0.5;
+        const qreal pill_w = pill_h;
         QFont two = QFontDatabase::systemFont(QFontDatabase::GeneralFont);
         two.setBold(true);
         two.setPixelSize(std::max(6, static_cast<int>(header_h * 0.56)));
         const qreal two_w = d.is_nx2 ? QFontMetricsF(two).horizontalAdvance(QStringLiteral("2")) : 0;
         const qreal gap = d.is_nx2 ? header_h * 0.18 : 0;
         const qreal x0 = header.center().x() - (pill_w + gap + two_w) / 2;
-        p.setPen(QPen(Qt::white, std::max(1.0, header_h * 0.07)));
+        p.setPen(QPen(Qt::white, std::max(1.0, pill_h * 0.125)));
         p.setBrush(Qt::NoBrush);
         p.drawRoundedRect(QRectF(x0, header.center().y() - pill_h / 2, pill_w, pill_h),
-                          pill_h / 2, pill_h / 2);
+                          pill_h * 0.3, pill_h * 0.3);
         if (d.is_nx2) {
             p.setFont(two);
             p.setPen(Qt::white);
@@ -440,25 +450,9 @@ void CartridgesStyle::Rebuild() {
     rebuild_pending_ = false;
     const QPersistentModelIndex previous = current_;
     entries_.clear();
-    if (model_) {
-        // Games are shown flat: top level games plus the games inside each folder row.
-        // Favorites and "add folder" rows are not cards.
-        const int top_rows = model_->rowCount();
-        for (int r = 0; r < top_rows; ++r) {
-            const QModelIndex idx = model_->index(r, 0);
-            const GameListItemType type = TypeOf(idx);
-            if (IsGameType(type)) {
-                entries_.emplace_back(idx);
-            } else if (IsFolderType(type)) {
-                const int children = model_->rowCount(idx);
-                for (int c = 0; c < children; ++c) {
-                    const QModelIndex child = model_->index(c, 0, idx);
-                    if (IsGameType(TypeOf(child))) {
-                        entries_.emplace_back(child);
-                    }
-                }
-            }
-        }
+    // The games, flat and favorites first (shared by every style).
+    for (const QModelIndex& game : LibraryStyleContext::Games(model_)) {
+        entries_.emplace_back(game);
     }
 
     int new_row = -1;
@@ -877,6 +871,14 @@ void CartridgesStyle::paintEvent([[maybe_unused]] QPaintEvent* event) {
             painter.drawPixmap(QPointF(std::round(place.center.x() + bounds.left()),
                                        std::round(place.center.y() + bounds.top())),
                                *tilted);
+            if (LibraryStyleContext::IsFavorite(index)) {
+                // Over the cached tilted cartridge, turned the same way (not baked in it, so a
+                // favorite toggle only repaints).
+                painter.save();
+                painter.setTransform(place.transform, true);
+                PaintCartridgeHeart(&painter, m.card_w, m.card_h);
+                painter.restore();
+            }
             return;
         }
         painter.save();
@@ -907,6 +909,9 @@ void CartridgesStyle::paintEvent([[maybe_unused]] QPaintEvent* event) {
         }
         // Drawn after the ring: the stickers stick out past the body and sit on top of it.
         painter.drawPixmap(QPointF(-margin, -margin), pixmap);
+        if (LibraryStyleContext::IsFavorite(index)) {
+            PaintCartridgeHeart(&painter, m.card_w, m.card_h);
+        }
         painter.restore();
     };
 

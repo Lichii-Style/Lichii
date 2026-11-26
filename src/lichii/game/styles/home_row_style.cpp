@@ -47,15 +47,6 @@ namespace {
 
 constexpr double kSelectedScale = 1.08;
 
-bool IsFolderType(GameListItemType type) {
-    return type == GameListItemType::CustomDir || type == GameListItemType::SdmcDir ||
-           type == GameListItemType::UserNandDir || type == GameListItemType::SysNandDir;
-}
-
-GameListItemType TypeOf(const QModelIndex& index) {
-    return index.data(GameListItem::TypeRole).value<GameListItemType>();
-}
-
 /// True when a dataChanged with these roles can change the cover art.
 bool ArtRolesChanged(const QList<int>& roles) {
     if (roles.isEmpty()) {
@@ -255,25 +246,9 @@ void HomeRowStyle::Rebuild() {
     m_rebuild_pending = false;
     const QPersistentModelIndex previous(CurrentIndex());
     m_entries.clear();
-    // Games are shown flat: top level games plus the games inside each folder row. Favorites and
-    // the "Add games folder" row are not covers.
-    if (m_model) {
-        const int top_rows = m_model->rowCount();
-        for (int r = 0; r < top_rows; ++r) {
-            const QModelIndex index = m_model->index(r, 0);
-            const GameListItemType type = TypeOf(index);
-            if (type == GameListItemType::Game) {
-                m_entries.emplace_back(index);
-            } else if (IsFolderType(type)) {
-                const int children = m_model->rowCount(index);
-                for (int c = 0; c < children; ++c) {
-                    const QModelIndex child = m_model->index(c, 0, index);
-                    if (TypeOf(child) == GameListItemType::Game) {
-                        m_entries.emplace_back(child);
-                    }
-                }
-            }
-        }
+    // The games, flat and favorites first (shared by every style).
+    for (const QModelIndex& game : LibraryStyleContext::Games(m_model)) {
+        m_entries.emplace_back(game);
     }
     int row = -1;
     if (previous.isValid()) {
@@ -439,6 +414,9 @@ void HomeRowStyle::paintEvent(QPaintEvent* event) {
         }
         const QPixmap pix = CoverPixmap(row, m.side);
         painter.drawPixmap(cover, pix, QRectF(QPointF(0, 0), QSizeF(pix.size())));
+        if (LibraryStyleContext::IsFavorite(IndexAt(row))) {
+            LibraryStyleContext::PaintFavoriteHeart(&painter, cover);
+        }
     }
 
     if (m_current >= 0 && m_current < count) {
@@ -458,6 +436,9 @@ void HomeRowStyle::paintEvent(QPaintEvent* event) {
         const QString title = TitleAt(m_current);
         const QPixmap pix = CoverPixmap(m_current, m.side);
         painter.drawPixmap(cover, pix, QRectF(QPointF(0, 0), QSizeF(pix.size())));
+        if (LibraryStyleContext::IsFavorite(index)) {
+            LibraryStyleContext::PaintFavoriteHeart(&painter, cover);
+        }
 
         painter.setBrush(Qt::NoBrush);
         painter.setPen(QPen(accent, std::max(2.0, cover.width() * 0.018)));

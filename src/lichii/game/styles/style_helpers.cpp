@@ -6,6 +6,7 @@
 #include <vector>
 
 #include <QAbstractItemModel>
+#include <QAbstractProxyModel>
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QFileInfo>
@@ -52,7 +53,23 @@ QString Tr(const char* text) {
 }
 
 QModelIndex Column(const QModelIndex& index, int column) {
-    return index.sibling(index.row(), column);
+    const QModelIndex sibling = index.sibling(index.row(), column);
+    if (sibling.isValid()) {
+        return sibling;
+    }
+    // A one-column proxy (the Carousel's flat list of games) has no size or add-ons column:
+    // the model behind it has. Without this the Carousel showed "NaN GB" for every game.
+    QModelIndex source = index;
+    while (const auto* proxy = qobject_cast<const QAbstractProxyModel*>(source.model())) {
+        source = proxy->mapToSource(source);
+        if (!source.isValid()) {
+            break;
+        }
+        if (const QModelIndex found = source.sibling(source.row(), column); found.isValid()) {
+            return found;
+        }
+    }
+    return sibling;
 }
 
 QString PlayTimeText(u64 seconds) {
@@ -851,8 +868,10 @@ void LibraryStyleContext::PaintCoverCaption(QPainter* painter, const QRect& cove
     const QColor info_color = dark ? QColor(0xa9, 0xa9, 0xb2) : QColor(0x6c, 0x6c, 0x76);
     const QRect text = band.adjusted(pad_x, pad_y, -pad_x, -pad_y);
     if (show_name) {
+        // May reach half the padding, never the band's rounded edge (it was cut there).
         PaintTitle(painter, QRect(text.left(), text.top(), text.width(), name_h), info.title,
-                   name_color, title_font, Qt::AlignLeft | Qt::AlignVCenter, 1, glide_in);
+                   name_color, title_font, Qt::AlignLeft | Qt::AlignVCenter, 1, glide_in,
+                   pad_x / 2);
     }
     if (info_h > 0) {
         PaintInfoLines(painter, QRect(text.left(), text.top() + name_h, text.width(), info_h),
@@ -1118,6 +1137,50 @@ QString LibraryStyleContext::LoadFonts() {
         return families.isEmpty() ? QString{} : families.first();
     }();
     return chakra;
+}
+
+QList<QModelIndex> LibraryStyleContext::Games(const QAbstractItemModel* model) {
+    QList<QModelIndex> favorites;
+    QList<QModelIndex> others;
+    if (model == nullptr) {
+        return favorites;
+    }
+    const auto& favorited = UISettings::values.favorited_ids;
+    const auto add = [&](const QModelIndex& index) {
+        if (index.data(GameListItem::TypeRole).value<GameListItemType>() !=
+            GameListItemType::Game) {
+            return;
+        }
+        const u64 id = index.data(GameListItemPath::ProgramIdRole).toULongLong();
+        (id != 0 && favorited.contains(id) ? favorites : others).append(index);
+    };
+    for (int row = 0; row < model->rowCount(); ++row) {
+        const QModelIndex index = model->index(row, 0);
+        switch (index.data(GameListItem::TypeRole).value<GameListItemType>()) {
+        case GameListItemType::Game:
+            add(index);
+            break;
+        case GameListItemType::CustomDir:
+        case GameListItemType::SdmcDir:
+        case GameListItemType::UserNandDir:
+        case GameListItemType::SysNandDir:
+            for (int child = 0; child < model->rowCount(index); ++child) {
+                add(model->index(child, 0, index));
+            }
+            break;
+        default: // Favorites (copies of games listed in their folders), Add games folder
+            break;
+        }
+    }
+    return favorites + others;
+}
+
+bool LibraryStyleContext::IsFavorite(const QModelIndex& index) {
+    return IsFavoriteProgram(index.data(GameListItemPath::ProgramIdRole).toULongLong());
+}
+
+void LibraryStyleContext::PaintFavoriteHeart(QPainter* painter, const QRectF& art) {
+    ::PaintFavoriteHeart(painter, art);
 }
 
 } // namespace LibraryStyles

@@ -128,6 +128,16 @@ void GameListModel::SetFolderSize(const QString& game_path, u64 size_bytes) {
     }
 }
 
+void GameListModel::sort(int column, Qt::SortOrder order) {
+    QStandardItemModel::sort(column, order);
+    // Qt sorts stably: sorting again on the favorite flag alone keeps the order just picked
+    // within favorites and within the rest. Folder rows never compare (they keep their order).
+    const int role = sortRole();
+    setSortRole(GameListItemPath::FavoriteRankRole);
+    QStandardItemModel::sort(COLUMN_NAME, Qt::AscendingOrder);
+    setSortRole(role);
+}
+
 bool GameListModel::IsEmpty() const {
     for (int i = 0; i < rowCount(); i++) {
         const QStandardItem* child = invisibleRootItem()->child(i);

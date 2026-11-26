@@ -33,11 +33,6 @@ constexpr int Gap = 6;
 constexpr int BarHeight = 44;
 constexpr int Radius = 4;
 
-bool IsFolder(GameListItemType type) {
-    return type == GameListItemType::CustomDir || type == GameListItemType::SdmcDir ||
-           type == GameListItemType::UserNandDir || type == GameListItemType::SysNandDir;
-}
-
 LibraryStyleView* Make(QWidget* parent) {
     return new DenseGridStyle(parent);
 }
@@ -159,27 +154,9 @@ void DenseGridStyle::Rebuild() {
     rebuild_pending = false;
     const QPersistentModelIndex previous = CurrentIndex();
     entries.clear();
-    // Games are shown flat: top level games plus the games inside each folder row. Favorites and
-    // the "Add games folder" row are not tiles, like the other styles.
-    if (model) {
-        const auto add_games = [this](const QModelIndex& parent) {
-            for (int row = 0; row < model->rowCount(parent); ++row) {
-                const QModelIndex index = model->index(row, 0, parent);
-                if (index.data(GameListItem::TypeRole).value<GameListItemType>() ==
-                    GameListItemType::Game) {
-                    entries.append(index);
-                }
-            }
-        };
-        for (int row = 0; row < model->rowCount(); ++row) {
-            const QModelIndex index = model->index(row, 0);
-            const auto type = index.data(GameListItem::TypeRole).value<GameListItemType>();
-            if (IsFolder(type)) {
-                add_games(index);
-            } else if (type == GameListItemType::Game) {
-                entries.append(index);
-            }
-        }
+    // The games, flat and favorites first (shared by every style).
+    for (const QModelIndex& game : LibraryStyleContext::Games(model)) {
+        entries.append(game);
     }
 
     current = -1;
@@ -341,6 +318,9 @@ void DenseGridStyle::paintEvent(QPaintEvent*) {
         const qreal ratio = devicePixelRatioF();
         painter.drawPixmap(tile, CachedCover(cover_cache, index, tile.size() * ratio, pal,
                                              static_cast<int>(Radius * ratio)));
+        if (LibraryStyleContext::IsFavorite(index)) {
+            LibraryStyleContext::PaintFavoriteHeart(&painter, QRectF(tile));
+        }
         const bool selected = i == current;
         if (names_on_tiles) {
             // Concept overlay: the selected tile always shows it, Names / Info on every tile.

@@ -73,14 +73,6 @@ int ItemType(const QModelIndex& index) {
     return index.data(GameListItem::TypeRole).toInt();
 }
 
-bool IsFolder(const QModelIndex& index) {
-    const int type = ItemType(index);
-    return type == static_cast<int>(GameListItemType::CustomDir) ||
-           type == static_cast<int>(GameListItemType::SdmcDir) ||
-           type == static_cast<int>(GameListItemType::UserNandDir) ||
-           type == static_cast<int>(GameListItemType::SysNandDir);
-}
-
 bool IsGame(const QModelIndex& index) {
     return ItemType(index) == static_cast<int>(GameListItemType::Game);
 }
@@ -185,26 +177,11 @@ void ChannelGridStyle::ScheduleRebuild() {
 }
 
 void ChannelGridStyle::Rebuild() {
-    // Games are shown flat: top level games plus the games inside each folder row.
-    // Favorites and the "add folder" row are not tiles.
     const QModelIndex before{current};
     entries.clear();
-    if (model) {
-        const int top_rows = model->rowCount();
-        for (int r = 0; r < top_rows; ++r) {
-            const QModelIndex idx = model->index(r, 0);
-            if (IsGame(idx)) {
-                entries.emplace_back(idx);
-            } else if (IsFolder(idx)) {
-                const int children = model->rowCount(idx);
-                for (int c = 0; c < children; ++c) {
-                    const QModelIndex child = model->index(c, 0, idx);
-                    if (IsGame(child)) {
-                        entries.emplace_back(child);
-                    }
-                }
-            }
-        }
+    // The games, flat and favorites first (shared by every style).
+    for (const QModelIndex& game : LibraryStyleContext::Games(model)) {
+        entries.emplace_back(game);
     }
     const int count = static_cast<int>(entries.size());
     if (count == 0) {
@@ -643,6 +620,7 @@ QPixmap ChannelGridStyle::CoverFor(const QModelIndex& index, const QSize& size, 
 void ChannelGridStyle::PaintTile(QPainter& p, const Layout& l, int row, bool selected) {
     if (selected) {
         PaintTileLive(p, l, row, true);
+        PaintFavorite(p, row, true);
         return;
     }
     const QModelIndex index = IndexForRow(row);
@@ -680,6 +658,22 @@ void ChannelGridStyle::PaintTile(QPainter& p, const Layout& l, int row, bool sel
         tile_cache.insert(key, cached, std::max(1, pm.width() * pm.height() * 4 / 1024));
     }
     p.drawPixmap(QPoint(cell.left() - pad, cell.top() - pad), *cached);
+    PaintFavorite(p, row, false);
+}
+
+void ChannelGridStyle::PaintFavorite(QPainter& p, int row, bool selected) {
+    // Over the tile's art, not in the tile cache: a favorite toggle only repaints.
+    if (!LibraryStyleContext::IsFavorite(IndexForRow(row))) {
+        return;
+    }
+    const Layout l = ComputeLayout();
+    const QRectF cell = TileRect(l, row);
+    const QRectF tile = selected ? QRectF(cell.center().x() - cell.width() * 0.52,
+                                          cell.center().y() - cell.height() * 0.52,
+                                          cell.width() * 1.04, cell.height() * 1.04)
+                                 : cell;
+    const qreal bezel = std::max(2.5, tile.height() * 0.035);
+    LibraryStyleContext::PaintFavoriteHeart(&p, tile.adjusted(bezel, bezel, -bezel, -bezel));
 }
 
 void ChannelGridStyle::PaintTileLive(QPainter& p, const Layout& l, int row, bool selected) {
@@ -766,6 +760,7 @@ void ChannelGridStyle::PaintTileLive(QPainter& p, const Layout& l, int row, bool
     const qreal bezel = std::max(2.5, tile.height() * 0.035);
     const QRectF art = tile.adjusted(bezel, bezel, -bezel, -bezel);
     p.drawPixmap(art.topLeft(), CoverFor(index, art.size().toSize(), 0, devicePixelRatioF()));
+
     QColor inner = Qt::black;
     inner.setAlpha(dark ? 110 : 40);
     p.setPen(QPen(inner, 1.0));

@@ -118,6 +118,8 @@ public slots:
     void UpdateIconSizes();
     /// The list's icons at the current size, scaled from the art the rows keep (no scan).
     void ResizeListIcons();
+    /// Modern grid at the folder level: make the current entry a folder it shows.
+    void SelectVisibleGridFolder();
     void RefreshThemeIcons();
     void OnPopulate();
 

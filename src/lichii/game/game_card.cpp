@@ -324,6 +324,10 @@ void GameCard::paint(QPainter* painter, const QStyleOptionViewItem& option,
                                                                 PlaceholderTitle(index), palette);
     }
     painter->restore();
+    if (!art_hidden && !add_folder && !game_folder &&
+        IsFavoriteProgram(index.data(GameListItemPath::ProgramIdRole).toULongLong())) {
+        PaintFavoriteHeart(painter, QRectF(artworkRect));
+    }
 
     // Accent ring around the selected card, drawn over the art so it is never hidden.
     if (selected) {

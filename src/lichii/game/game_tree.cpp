@@ -96,13 +96,16 @@ public:
             flags | (two_lines ? Qt::AlignBottom : Qt::AlignVCenter), title, &title_rect);
 
         const u64 program_id = index.data(GameListItemPath::ProgramIdRole).toULongLong();
-        if (program_id != 0 && UISettings::values.favorited_ids.contains(program_id)) {
-            const int star_x = title_rect.right() + 8;
-            const int star_y = title_rect.center().y() - 7;
-            if (star_x + 14 <= rect.right()) {
-                painter->drawPixmap(QRect(star_x, star_y, 14, 14),
-                                    QPixmap(QStringLiteral(":/%1/icons/star_accent@2x.png")
-                                                .arg(QLatin1String(UISettings::LichiiIconFolder()))));
+        if (IsFavoriteProgram(program_id)) {
+            // The heart every view uses for favorites, inline after the name at the text's
+            // cap height.
+            const int heart = std::max(12, QFontMetrics(painter->font()).capHeight() + 6);
+            const int heart_x = title_rect.right() + 6;
+            const int heart_y = title_rect.center().y() - heart / 2;
+            if (heart_x + heart <= rect.right()) {
+                painter->drawPixmap(
+                    QPoint(heart_x, heart_y),
+                    FavoriteHeart(heart, painter->device()->devicePixelRatioF(), true));
             }
         }
 

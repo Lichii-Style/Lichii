@@ -48,17 +48,6 @@ bool IsDark(const QPalette& palette) {
     return palette.window().color().lightness() < 128;
 }
 
-bool IsGameType(int type) {
-    return type == static_cast<int>(GameListItemType::Game);
-}
-
-bool IsFolderType(int type) {
-    return type == static_cast<int>(GameListItemType::CustomDir) ||
-           type == static_cast<int>(GameListItemType::SdmcDir) ||
-           type == static_cast<int>(GameListItemType::UserNandDir) ||
-           type == static_cast<int>(GameListItemType::SysNandDir);
-}
-
 QString TitleOf(const QModelIndex& index) {
     QString title = index.data(GameListItemPath::TitleRole).toString();
     if (title.isEmpty()) {
@@ -219,24 +208,9 @@ void DualPaneStyle::Rebuild() {
     const bool had_current = current_ >= 0;
     items_.clear();
 
-    if (model_) {
-        const int rows = model_->rowCount();
-        items_.reserve(static_cast<size_t>(rows));
-        for (int r = 0; r < rows; ++r) {
-            const QModelIndex top = model_->index(r, 0);
-            const int type = top.data(GameListItem::TypeRole).toInt();
-            if (IsGameType(type)) {
-                items_.emplace_back(top);
-            } else if (IsFolderType(type)) {
-                const int children = model_->rowCount(top);
-                for (int c = 0; c < children; ++c) {
-                    const QModelIndex child = model_->index(c, 0, top);
-                    if (IsGameType(child.data(GameListItem::TypeRole).toInt())) {
-                        items_.emplace_back(child);
-                    }
-                }
-            }
-        }
+    // The games, flat and favorites first (shared by every style).
+    for (const QModelIndex& game : LibraryStyleContext::Games(model_)) {
+        items_.emplace_back(game);
     }
 
     int row = -1;
@@ -627,6 +601,9 @@ void DualPaneStyle::DrawGrid(QPainter& painter, const QRect& dirty) {
             painter.setBrush(card);
             painter.drawRoundedRect(shell, shell_side * 0.16, shell_side * 0.16);
             painter.drawPixmap(tile.topLeft(), Art(index, icon_px_));
+            if (LibraryStyleContext::IsFavorite(index)) {
+                LibraryStyleContext::PaintFavoriteHeart(&painter, QRectF(tile));
+            }
 
             if (selected) {
                 // Four thick rounded L corners 7 % outside the shell, 32 % long (concept).

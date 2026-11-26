@@ -182,6 +182,15 @@ public:
     /// Picture of the active profile, or the default account picture; reloaded only when the
     /// profile or its image file changes.
     static QPixmap UserAvatar();
+    /// Whether the game is a favorite (View: favorites come first; they wear a heart).
+    static bool IsFavorite(const QModelIndex& index);
+    /// The favorite mark (see FavoriteHeart in game_list_p.h) in the top left corner of `art`,
+    /// in the painter's coordinates, so it turns with a tilted or turned cover.
+    static void PaintFavoriteHeart(QPainter* painter, const QRectF& art);
+    /// The games a style shows, flat: the top level games and the games in each folder row (not
+    /// the Favorites row's copies, not the "Add games folder" row). Favorites come first, each
+    /// group in the list's order. Every style builds its entries from this.
+    static QList<QModelIndex> Games(const QAbstractItemModel* model);
     /// Registers every font Lichii ships for the styles and themes once: Nunito (Canvas) and
     /// Chakra Petch (RIS theme and style). Returns Chakra Petch's family name.
     static QString LoadFonts();

@@ -193,6 +193,11 @@ private:
                                                         : *b.second < *a.second;
             });
         }
+        // Favorites first, as GameListModel::sort does in every folder.
+        std::stable_partition(games.begin(), games.end(), [](const auto& game) {
+            return IsFavoriteProgram(
+                game.first->data(GameListItemPath::ProgramIdRole).toULongLong());
+        });
         entries.reserve(static_cast<qsizetype>(games.size()) + 1);
         for (const auto& game : games) {
             row_of.insert(game.first, static_cast<int>(entries.size()));
@@ -269,19 +274,29 @@ void GameCarousel::SetModel(GameListModel* model) {
         // A rebuild resets the row: keep the selected game.
         auto selected = std::make_shared<QPersistentModelIndex>();
         connect(m_flatModel, &QAbstractItemModel::modelAboutToBeReset, this, [this, selected] {
-            *selected = m_flatModel->mapToSource(currentIndex());
+            // Rows removed from the library empty the list first and fill it again a turn
+            // later: keep the game remembered while it is empty.
+            if (const QModelIndex current = m_flatModel->mapToSource(currentIndex());
+                current.isValid()) {
+                *selected = current;
+            }
         });
+        // Queued: the view's own reset (which clears the current item) runs on this signal too,
+        // after this handler; restored before it, the selection was gone again at once.
         connect(m_flatModel, &QAbstractItemModel::modelReset, this, [this, selected] {
-            if (!selected->isValid()) {
-                return;
+            if (!selected->isValid() || m_flatModel->rowCount() == 0) {
+                return; // nothing to restore yet, or still empty: wait for the refill
             }
             const QModelIndex restored = m_flatModel->mapFromSource(*selected);
             *selected = QPersistentModelIndex{};
             if (restored.isValid()) {
                 setCurrentIndex(restored);
+                // Lay the cards out now: Qt does it a turn later, and scrolling before that used
+                // the old places, so the view jumped once more after a favorite toggle.
+                doItemsLayout();
                 scrollTo(restored);
             }
-        });
+        }, Qt::QueuedConnection);
     }
     m_flatModel->setSourceModel(model);
     QListView::setModel(m_flatModel);

@@ -41,19 +41,6 @@ constexpr qreal kCoverRadius = 10.0 / 230.0;
 constexpr qreal kReflectionShare = 0.22;
 constexpr qreal kReflectionGap = 6.0 / 230.0;
 
-bool IsGameType(GameListItemType type) {
-    return type == GameListItemType::Game;
-}
-
-bool IsFolderType(GameListItemType type) {
-    return type == GameListItemType::CustomDir || type == GameListItemType::SdmcDir ||
-           type == GameListItemType::UserNandDir || type == GameListItemType::SysNandDir;
-}
-
-GameListItemType TypeOf(const QModelIndex& index) {
-    return index.data(GameListItem::TypeRole).value<GameListItemType>();
-}
-
 /// True when a dataChanged with these roles can change the cover art or the title.
 bool ArtRolesChanged(const QList<int>& roles) {
     if (roles.isEmpty()) {
@@ -284,25 +271,9 @@ void CarouselStyle::Rebuild() {
             : QPersistentModelIndex();
 
     items_.clear();
-    if (model_) {
-        // Games are shown flat: top level games plus the games inside each folder row.
-        // Favorites and "add folder" rows are not covers.
-        const int top_rows = model_->rowCount();
-        for (int r = 0; r < top_rows; ++r) {
-            const QModelIndex index = model_->index(r, 0);
-            const GameListItemType type = TypeOf(index);
-            if (IsGameType(type)) {
-                items_.emplace_back(index);
-            } else if (IsFolderType(type)) {
-                const int children = model_->rowCount(index);
-                for (int c = 0; c < children; ++c) {
-                    const QModelIndex child = model_->index(c, 0, index);
-                    if (IsGameType(TypeOf(child))) {
-                        items_.emplace_back(child);
-                    }
-                }
-            }
-        }
+    // The games, flat and favorites first (shared by every style).
+    for (const QModelIndex& game : LibraryStyleContext::Games(model_)) {
+        items_.emplace_back(game);
     }
 
     int new_current = std::clamp(current_, 0, std::max(0, static_cast<int>(items_.size()) - 1));
@@ -745,6 +716,20 @@ const QPixmap& CarouselStyle::ShadowFor(qreal side, bool selected) {
     return slot;
 }
 
+void CarouselStyle::PaintCoverHeart(QPainter& painter, int row, const QTransform& transform,
+                                    qreal side) {
+    // Favorites: the heart upright at the cover's top left corner as the tilt places it, and as
+    // large as the cover is drawn. Not through the perspective (slow for every cover on every
+    // frame) and not in the cover caches (a favorite toggle only repaints).
+    if (!LibraryStyleContext::IsFavorite(IndexAt(row))) {
+        return;
+    }
+    const qreal size = FavoriteHeartSize(side);
+    const QPointF center = transform.map(QPointF(size * 0.5, size * 0.5));
+    const qreal drawn = transform.map(QLineF(0, 0, side, 0)).length() / side;
+    PaintFavoriteHeartAt(&painter, center, size * drawn);
+}
+
 QPixmap CarouselStyle::WithReflection(const QPixmap& cover, qreal side) {
     const qint64 key = cover.cacheKey();
     if (const auto it = with_reflection_cache_.constFind(key);
@@ -871,6 +856,7 @@ void CarouselStyle::PaintCover(QPainter& painter, const Metrics& m, int row, qre
         painter.drawPixmap(QRectF(box.left() + bounds.left() * f, box.top() + bounds.top() * f,
                                   bounds.width() * f, bounds.height() * f),
                            tilted, QRectF(tilted.rect()));
+        PaintCoverHeart(painter, row, transform, side);
         painter.restore();
         return;
     }
@@ -897,6 +883,10 @@ void CarouselStyle::PaintCover(QPainter& painter, const Metrics& m, int row, qre
         painter.drawPixmap(QRectF(0, 0, side, side * (1.0 + kReflectionGap + kReflectionShare)),
                            both, QRectF(both.rect()));
     }
+    painter.save(); // the ring below still needs the cover's transform
+    painter.resetTransform();
+    PaintCoverHeart(painter, row, transform, side);
+    painter.restore();
 
     if (a < 0.5) {
         QColor accent = LibraryStyleContext::Accent(palette());

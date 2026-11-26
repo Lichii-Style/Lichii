@@ -383,6 +383,7 @@ void GameList::ResetViewMode() {
         if (!m_populating && item_model->rowCount() > 0) {
             grid_view->setRowHidden(0, true);
         }
+        SelectVisibleGridFolder();
         UpdateFolderNavigation();
     } else {
         folder_navigation->hide();
@@ -1308,8 +1309,11 @@ static void RefreshThemeIcon(QStandardItem* item) {
         icon_name = "list-add";
         break;
     case GameListItemType::Favorites:
-        icon_name = "star";
-        break;
+        item->setData(FavoriteHeart(IsLichiiTheme() ? 16 : static_cast<int>(
+                                        UISettings::values.folder_icon_size.GetValue()),
+                                    2.0, true),
+                      Qt::DecorationRole);
+        return;
     default:
         return;
     }
@@ -1375,14 +1379,40 @@ void GameList::ValidateEntry(const QModelIndex& item) {
 
 void GameList::ToggleFavorite(u64 program_id) {
     item_model->ToggleFavorite(program_id);
+    // The styles list favorites first and show their heart: rebuild them on adding and on
+    // removing alike (only adding sorted the model, so a removed one stayed in front).
+    if (style_model != nullptr) {
+        style_model->invalidate();
+    }
 
     if (UISettings::values.favorited_ids.contains(program_id)) {
         tree_view->setRowHidden(0, item_model->invisibleRootItem()->index(),
                                 !search_field->filterText().isEmpty());
-        item_model->sort(tree_view->header()->sortIndicatorSection(),
-                         tree_view->header()->sortIndicatorOrder());
     } else if (UISettings::values.favorited_ids.isEmpty()) {
         tree_view->setRowHidden(0, item_model->invisibleRootItem()->index(), true);
+    }
+    // Favorites first (see GameListModel::sort): after adding and after removing.
+    item_model->sort(tree_view->header()->sortIndicatorSection(),
+                     tree_view->header()->sortIndicatorOrder());
+}
+
+void GameList::SelectVisibleGridFolder() {
+    // At the folder level the current entry must be a folder the grid shows: kept from another
+    // view it could be a game inside a folder or the hidden Favorites row, and then nothing was
+    // highlighted and A (Enter) opened nothing.
+    const QModelIndex current = grid_view->currentIndex();
+    if (current.isValid() && !current.parent().isValid() &&
+        !grid_view->isRowHidden(current.row())) {
+        return;
+    }
+    for (int row = 0; row < item_model->rowCount(); ++row) {
+        const QModelIndex index = item_model->index(row, 0);
+        const auto type = index.data(GameListItem::TypeRole).value<GameListItemType>();
+        if (!grid_view->isRowHidden(row) && type != GameListItemType::AddDir &&
+            type != GameListItemType::Favorites) {
+            grid_view->setCurrentIndex(index);
+            return;
+        }
     }
 }
 
@@ -1395,6 +1425,7 @@ void GameList::ReturnToGameDirectories() {
     grid_view->clearSelection();
     // Hide the favorites row again; it is only added when a folder root is displayed.
     grid_view->setRowHidden(0, true);
+    SelectVisibleGridFolder();
     UpdateFolderNavigation();
     grid_view->scrollToTop();
     if (!search_field->filterText().isEmpty()) {
@@ -1604,6 +1635,10 @@ void GameList::AddGamePopup(QMenu& context_menu, u64 program_id, const std::stri
         if (action != nullptr) {
             action->setIcon(MenuIcon(name));
         }
+    }
+    if (favorite != nullptr) {
+        // The favorites heart, upright like the other menu icons.
+        favorite->setIcon(QIcon(FavoriteHeart(16, devicePixelRatioF(), true)));
     }
 
     favorite->setVisible(program_id != 0);

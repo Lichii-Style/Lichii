@@ -41,11 +41,6 @@ constexpr int Lift = 10;
 constexpr int ShelfLabel = 26;
 constexpr int Radius = 3;
 
-bool IsFolder(GameListItemType type) {
-    return type == GameListItemType::CustomDir || type == GameListItemType::SdmcDir ||
-           type == GameListItemType::UserNandDir || type == GameListItemType::SysNandDir;
-}
-
 /// Chakra Petch ships with the RIS theme resources; the style uses it with any theme. It has
 /// no CJK glyphs: every font set from it falls back to system CJK fonts (titles in Japanese).
 QString LoadDisplayFamily() {
@@ -185,27 +180,9 @@ void RisStyle::Rebuild() {
     rebuild_pending = false;
     const QPersistentModelIndex previous = CurrentIndex();
     entries.clear();
-    // Games are shown flat: top level games plus the games inside each folder row. Favorites and
-    // the "Add games folder" row are not tiles, like the other styles.
-    if (model) {
-        const auto add_games = [this](const QModelIndex& parent) {
-            for (int row = 0; row < model->rowCount(parent); ++row) {
-                const QModelIndex index = model->index(row, 0, parent);
-                if (index.data(GameListItem::TypeRole).value<GameListItemType>() ==
-                    GameListItemType::Game) {
-                    entries.append(index);
-                }
-            }
-        };
-        for (int row = 0; row < model->rowCount(); ++row) {
-            const QModelIndex index = model->index(row, 0);
-            const auto type = index.data(GameListItem::TypeRole).value<GameListItemType>();
-            if (IsFolder(type)) {
-                add_games(index);
-            } else if (type == GameListItemType::Game) {
-                entries.append(index);
-            }
-        }
+    // The games, flat and favorites first (shared by every style).
+    for (const QModelIndex& game : LibraryStyleContext::Games(model)) {
+        entries.append(game);
     }
 
     current = -1;
@@ -506,6 +483,9 @@ void RisStyle::PaintHero(QPainter& painter, const Colors& colors) {
         painter.drawPixmap(cover,
                            CachedCover(selected, cover.size() * devicePixelRatioF()));
         painter.restore();
+        if (LibraryStyleContext::IsFavorite(selected)) {
+            LibraryStyleContext::PaintFavoriteHeart(&painter, QRectF(cover));
+        }
         painter.setPen(QPen(colors.accent, 2));
         painter.setBrush(Qt::NoBrush);
         painter.drawRoundedRect(QRectF(cover).adjusted(-1, -1, 1, 1), Radius, Radius);
@@ -665,6 +645,9 @@ void RisStyle::PaintShelf(QPainter& painter, const Colors& colors) {
         painter.drawPixmap(rect, CachedCover(index, rect.size() * devicePixelRatioF()));
         if (!selected) {
             painter.fillRect(rect, dark ? QColor(0, 0, 0, 90) : QColor(255, 255, 255, 70));
+        }
+        if (LibraryStyleContext::IsFavorite(index)) {
+            LibraryStyleContext::PaintFavoriteHeart(&painter, QRectF(rect));
         }
         painter.restore();
 

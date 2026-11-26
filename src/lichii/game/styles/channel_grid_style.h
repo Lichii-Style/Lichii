@@ -96,6 +96,8 @@ private:
     /// A tile with its name and info: unselected ones from tile_cache, the selected one live.
     void PaintTile(QPainter& painter, const Layout& layout, int row, bool selected);
     void PaintTileLive(QPainter& painter, const Layout& layout, int row, bool selected);
+    /// The favorite heart over a tile (kept out of tile_cache).
+    void PaintFavorite(QPainter& painter, int row, bool selected);
     void PaintDock(QPainter& painter, const Layout& layout);
 
     QPointer<QAbstractItemModel> model;

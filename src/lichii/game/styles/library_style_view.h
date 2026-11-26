@@ -51,6 +51,21 @@ public:
     virtual bool OptionOn() const {
         return false;
     }
+    /// The style's look option (+), e.g. Showcase's covers, cartridges or cases. Returns a short
+    /// label for the new look, or empty when the style has none.
+    virtual QString CycleLook() {
+        return {};
+    }
+    virtual int Look() const {
+        return 0;
+    }
+    void SetLook(int look) {
+        for (int i = 0; i < 8 && Look() != look; ++i) {
+            if (CycleLook().isEmpty()) {
+                return;
+            }
+        }
+    }
     void SetOptionOn(bool on) {
         if (OptionOn() != on) {
             CycleOption();

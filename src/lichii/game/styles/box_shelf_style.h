@@ -30,6 +30,12 @@ namespace LibraryStyles {
 /// "Box Shelf": games stand as cases on a wooden table, front or spine out. Concept by inxomnyaa.
 struct CaseView;
 
+/// A game's case seen from the front (Box Shelf), w x h logical pixels. Showcase uses it too.
+QPixmap RenderCaseFront(const QModelIndex& index, double w, double h, qreal dpr,
+                        const QFont& font);
+/// A case's width / height.
+constexpr double CaseAspect = 0.62;
+
 class BoxShelfStyle final : public LibraryStyleView {
     Q_OBJECT
 

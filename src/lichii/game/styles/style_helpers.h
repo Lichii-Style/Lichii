@@ -178,7 +178,8 @@ public:
     /// L R Style. Letters are Switch positions, like the controller mapping.
     /// A, B, the style's X option, Y, minus Profile, ZL/ZR size and L/R style: the same buttons
     /// in the same order in every style.
-    static std::vector<ButtonHint> StandardHints(const QString& option = {});
+    static std::vector<ButtonHint> StandardHints(const QString& option = {},
+                                                 const QString& look = {});
     /// Picture of the active profile, or the default account picture; reloaded only when the
     /// profile or its image file changes.
     static QPixmap UserAvatar();
@@ -187,6 +188,10 @@ public:
     /// The favorite mark (see FavoriteHeart in game_list_p.h) in the top left corner of `art`,
     /// in the painter's coordinates, so it turns with a tilted or turned cover.
     static void PaintFavoriteHeart(QPainter* painter, const QRectF& art);
+    /// The heart on a cartridge or case (`object`, upright, in the painter's coordinates): past
+    /// its right edge where the stickers sit, turned like them. The same in Cartridges, Box Shelf
+    /// and Showcase.
+    static void PaintStickerHeart(QPainter* painter, const QRectF& object);
     /// The games a style shows, flat: the top level games and the games in each folder row (not
     /// the Favorites row's copies, not the "Add games folder" row). Favorites come first, each
     /// group in the list's order. Every style builds its entries from this.

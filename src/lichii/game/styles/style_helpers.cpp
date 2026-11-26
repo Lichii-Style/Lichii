@@ -930,13 +930,17 @@ LibraryStyleView* MakePlaceholderView(QWidget* parent, const QString& style_name
     return new PlaceholderView(parent, style_name);
 }
 
-std::vector<ButtonHint> LibraryStyleContext::StandardHints(const QString& option) {
+std::vector<ButtonHint> LibraryStyleContext::StandardHints(const QString& option,
+                                                           const QString& look) {
     std::vector<ButtonHint> hints{{{QStringLiteral("A")}, Tr("Play")},
                                   {{QStringLiteral("B")}, Tr("Names")}};
     if (!option.isEmpty()) {
         hints.push_back({{QStringLiteral("X")}, option});
     }
     hints.push_back({{QStringLiteral("Y")}, Tr("Info")});
+    if (!look.isEmpty()) {
+        hints.push_back({{QStringLiteral("+")}, look});
+    }
     hints.push_back({{QString(QChar(0x2212))}, Tr("Profile")});
     hints.push_back({{QStringLiteral("ZL"), QStringLiteral("ZR")}, Tr("Size")});
     hints.push_back({{QStringLiteral("L"), QStringLiteral("R")}, Tr("Style")});
@@ -1181,6 +1185,18 @@ bool LibraryStyleContext::IsFavorite(const QModelIndex& index) {
 
 void LibraryStyleContext::PaintFavoriteHeart(QPainter* painter, const QRectF& art) {
     ::PaintFavoriteHeart(painter, art);
+}
+
+void LibraryStyleContext::PaintStickerHeart(QPainter* painter, const QRectF& object) {
+    const qreal w = object.width();
+    const qreal size = FavoriteHeartSize(w * 0.87); // the label art's width on a cartridge
+    const QPointF center(object.right() + w * 0.07 - size * 0.5,
+                         object.top() + object.height() * 0.17 - size * 0.42);
+    painter->save();
+    painter->translate(center);
+    painter->rotate(8.0); // the stickers' tilt, on a straight heart
+    PaintFavoriteHeartAt(painter, QPointF(0, 0), size, 0.0);
+    painter->restore();
 }
 
 } // namespace LibraryStyles

@@ -25,6 +25,13 @@ class QScrollBar;
 namespace LibraryStyles {
 
 /// Each game is a generic cartridge lying on a wood table.
+/// A game's cartridge (Cartridges), w wide, without stickers; the pixmap has
+/// CartridgeMargin(w) of room on every side. Showcase uses it too.
+QPixmap RenderCartridge(const QModelIndex& index, qreal w, qreal dpr, const QPalette& palette);
+qreal CartridgeMargin(qreal w);
+/// A cartridge's height / width.
+constexpr qreal CartridgeAspect = 1.408;
+
 class CartridgesStyle final : public LibraryStyleView {
     Q_OBJECT
 

@@ -36,6 +36,10 @@ public:
     void SetShowNames(bool show) override;
     void SetShowInfo(bool show) override;
     QString CycleOption() override;
+    QString CycleLook() override;
+    int Look() const override {
+        return look_;
+    }
     bool OptionOn() const override {
         return flat_;
     }
@@ -105,7 +109,11 @@ private:
     /// perspective draw instead of two.
     QPixmap WithReflection(const QPixmap& cover, qreal side);
     void PaintCoverHeart(QPainter& painter, int row, const QTransform& transform, qreal side);
-    const QPixmap& ShadowFor(qreal side, bool selected);
+    const QPixmap& ShadowFor(const QSizeF& size, qreal radius, bool selected);
+    /// What a cover of `side` shows in its square: all of it, or the cartridge or case centred
+    /// in it, and that outline's corner radius.
+    QRectF ContentRect(qreal side) const;
+    qreal ContentRadius(qreal side) const;
     void PaintCover(QPainter& painter, const Metrics& metrics, int row, qreal offset);
     void PaintTexts(QPainter& painter, const Metrics& metrics);
     void PaintDots(QPainter& painter, const Metrics& metrics);
@@ -124,6 +132,8 @@ private:
     bool show_names_ = true;
     bool show_info_ = true;
     bool flat_ = false;
+    /// +: 0 covers, 1 cartridges, 2 cases (drawn by the Cartridges and Box Shelf code).
+    int look_ = 0;
 
     bool dirty_ = false;
     bool change_pending_ = false;
@@ -138,9 +148,8 @@ private:
     QHash<int, QPixmap> background_cache_;
     QHash<qint64, QPixmap> reflection_cache_;
     QHash<qint64, QPixmap> with_reflection_cache_;
-    QPixmap shadow_;
-    QPixmap shadow_selected_;
-    int shadow_side_[2] = {0, 0};
+    /// Soft shadows by size and selection ("w|h|sel").
+    QHash<QString, QPixmap> shadow_cache_;
     int cover_cache_side_ = 0;
     QHash<qint64, QPixmap> tilted_cache_;
     int tilted_side_ = 0;

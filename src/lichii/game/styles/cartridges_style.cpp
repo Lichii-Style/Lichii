@@ -95,20 +95,6 @@ qreal CardMargin(qreal card_w) {
     return std::max(card_w * 0.2, 22.0);
 }
 
-/// The favorite heart on a cartridge (in its own coordinates): on top of the play time and
-/// version stickers, poking out past the right edge like them (see RenderCard).
-void PaintCartridgeHeart(QPainter* painter, qreal w, qreal h) {
-    const qreal size = FavoriteHeartSize(w * 0.87); // the label art's width
-    // Right edge with the stickers' (w * 1.07), its bottom on their top (h * 0.17), turned by
-    // the stickers' tilt: a straight heart, not the tilted one turned once more.
-    const QPointF center(w * 1.07 - size * 0.5, h * 0.17 - size * 0.42);
-    painter->save();
-    painter->translate(center);
-    painter->rotate(StickerTilt);
-    PaintFavoriteHeartAt(painter, QPointF(0, 0), size, 0.0);
-    painter->restore();
-}
-
 QPainterPath BodyPath(qreal w, qreal h) {
     QPainterPath body;
     body.addRoundedRect(QRectF(0, 0, w, h), w * 0.085, w * 0.085);
@@ -380,7 +366,49 @@ QPixmap RenderCard(const CardData& d, qreal w, qreal h, qreal dpr) {
     return pixmap;
 }
 
+/// The cartridge's data for a row: art (or the shared folder art), title, id, generation and,
+/// with `stickers`, the play time and version the View > Game Info settings switch on.
+CardData CartridgeData(const QModelIndex& index, const QPalette& pal, bool stickers) {
+    const bool is_game = IsGameType(TypeOf(index));
+    CardData data;
+    data.is_game = is_game;
+    data.title = is_game ? index.data(GameListItemPath::TitleRole).toString() : QString{};
+    if (data.title.isEmpty()) {
+        data.title = index.data(Qt::DisplayRole).toString().section(QLatin1Char('\n'), 0, 0);
+    }
+    if (!is_game) {
+        // Add Folder and the like: the shared folder-with-plus art on the label.
+        data.cover = LibraryStyleContext::Cover(index, QSize(256, 256), pal);
+        return data;
+    }
+    data.cover = index.data(GameListItemPath::CardIconRole).value<QPixmap>();
+    if (data.cover.isNull() && index.data(GameListItemPath::HasIconRole).toBool()) {
+        data.cover = index.data(Qt::DecorationRole).value<QPixmap>();
+    }
+    const GameInfo game = LibraryStyleContext::Info(index);
+    const quint64 program_id = index.data(GameListItemPath::ProgramIdRole).toULongLong();
+    data.id_text = game.program_id_text;
+    data.is_nx2 = game.is_nx2 || (program_id >> 56) == 0x04;
+    if (stickers) {
+        if (game.is_game && UISettings::values.show_play_time.GetValue()) { // "New" if unplayed
+            data.play_time = game.play_time_text;
+        }
+        if (UISettings::values.show_add_ons.GetValue() && !game.update_version.isEmpty()) {
+            data.version = QStringLiteral("v") + game.update_version;
+        }
+    }
+    return data;
+}
+
 } // namespace
+
+QPixmap RenderCartridge(const QModelIndex& index, qreal w, qreal dpr, const QPalette& palette) {
+    return RenderCard(CartridgeData(index, palette, false), w, w * CartridgeAspect, dpr);
+}
+
+qreal CartridgeMargin(qreal w) {
+    return CardMargin(w);
+}
 
 CartridgesStyle::CartridgesStyle(QWidget* parent)
     : LibraryStyleView{parent}, card_cache_{64 * 1024 * 1024}, tilted_cache_{64 * 1024 * 1024} {
@@ -525,7 +553,7 @@ CartridgesStyle::Metrics CartridgesStyle::ComputeMetrics() const {
     m.cols = std::max(1, static_cast<int>(avail / (m.card_w * 1.12 + 26.0)));
     m.cell_w = avail / m.cols;
     // Label (header + square art + id strip) plus the rims lands at the real ~21:30 cart shape.
-    m.card_h = m.card_w * 1.408;
+    m.card_h = m.card_w * CartridgeAspect;
     // Concept row gap of 34 px. With names on, the gap holds a two-line bubble plus the lifted,
     // scaled selected cart of the next row, so neither covers the other.
     m.bubble_scale = BubbleScale(m.card_w);
@@ -668,61 +696,22 @@ QPixmap CartridgesStyle::CardPixmap(const QModelIndex& index, const Metrics& m, 
                                     bool selected) const {
     const auto type = TypeOf(index);
     const bool is_game = IsGameType(type);
-    const QPalette pal = palette();
-
-    QPixmap cover;
-    quint64 program_id = 0;
-    QString path;
-    if (is_game) {
-        cover = index.data(GameListItemPath::CardIconRole).value<QPixmap>();
-        if (cover.isNull() && index.data(GameListItemPath::HasIconRole).toBool()) {
-            cover = index.data(Qt::DecorationRole).value<QPixmap>();
-        }
-        program_id = index.data(GameListItemPath::ProgramIdRole).toULongLong();
-        path = index.data(GameListItemPath::FullPathRole).toString();
-    }
-    QString title = is_game ? index.data(GameListItemPath::TitleRole).toString() : QString{};
-    if (title.isEmpty()) {
-        title = index.data(Qt::DisplayRole).toString().section(QLatin1Char('\n'), 0, 0);
-    }
     // Like Dense Grid: Info shows the stickers on the selected cart only.
     const bool info = show_info_ && selected && is_game;
-    const GameInfo game = is_game ? LibraryStyleContext::Info(index) : GameInfo{};
-    if (!is_game) {
-        // Add Folder and the like: the shared folder-with-plus art on the label.
-        cover = LibraryStyleContext::Cover(index, QSize(256, 256), pal);
-    }
-
-    const QString key = QStringList{path,
-                                    title,
-                                    QString::number(program_id),
-                                    QString::number(cover.cacheKey()),
-                                    QString::number(static_cast<int>(type)),
-                                    info ? game.info_line : QString{},
-                                    QString::number(static_cast<int>(m.card_w * 100)),
-                                    QString::number(static_cast<int>(dpr * 100))}
-                            .join(QLatin1Char('|'));
+    const CardData card_data = CartridgeData(index, palette(), info);
+    const QString key =
+        QStringList{index.data(GameListItemPath::FullPathRole).toString(),
+                    card_data.title,
+                    QString::number(index.data(GameListItemPath::ProgramIdRole).toULongLong()),
+                    QString::number(card_data.cover.cacheKey()),
+                    QString::number(static_cast<int>(type)),
+                    card_data.play_time + QLatin1Char('|') + card_data.version,
+                    QString::number(static_cast<int>(m.card_w * 100)),
+                    QString::number(static_cast<int>(dpr * 100))}
+            .join(QLatin1Char('|'));
     if (QPixmap* cached = card_cache_.object(key)) {
         return *cached;
     }
-
-    CardData card_data;
-    card_data.cover = cover;
-    card_data.title = title;
-    card_data.is_game = is_game;
-    if (is_game) {
-        card_data.id_text = game.program_id_text;
-        card_data.is_nx2 = game.is_nx2 || (program_id >> 56) == 0x04;
-        if (info) {
-            if (game.is_game && UISettings::values.show_play_time.GetValue()) { // "New" if unplayed
-                card_data.play_time = game.play_time_text;
-            }
-            if (UISettings::values.show_add_ons.GetValue() && !game.update_version.isEmpty()) {
-                card_data.version = QStringLiteral("v") + game.update_version;
-            }
-        }
-    }
-
     auto* pixmap = new QPixmap(RenderCard(card_data, m.card_w, m.card_h, dpr));
     const int cost = std::max(
         1, static_cast<int>(static_cast<qint64>(pixmap->width()) * pixmap->height() * 4));
@@ -876,7 +865,7 @@ void CartridgesStyle::paintEvent([[maybe_unused]] QPaintEvent* event) {
                 // favorite toggle only repaints).
                 painter.save();
                 painter.setTransform(place.transform, true);
-                PaintCartridgeHeart(&painter, m.card_w, m.card_h);
+                LibraryStyleContext::PaintStickerHeart(&painter, QRectF(0, 0, m.card_w, m.card_h));
                 painter.restore();
             }
             return;
@@ -910,7 +899,7 @@ void CartridgesStyle::paintEvent([[maybe_unused]] QPaintEvent* event) {
         // Drawn after the ring: the stickers stick out past the body and sit on top of it.
         painter.drawPixmap(QPointF(-margin, -margin), pixmap);
         if (LibraryStyleContext::IsFavorite(index)) {
-            PaintCartridgeHeart(&painter, m.card_w, m.card_h);
+            LibraryStyleContext::PaintStickerHeart(&painter, QRectF(0, 0, m.card_w, m.card_h));
         }
         painter.restore();
     };

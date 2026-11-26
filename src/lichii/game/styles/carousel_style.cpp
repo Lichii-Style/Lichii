@@ -29,6 +29,8 @@
 
 #include "qt_common/game_list/game_list_p.h"
 #include "lichii/game/styles/carousel_style.h"
+#include "lichii/game/styles/box_shelf_style.h"
+#include "lichii/game/styles/cartridges_style.h"
 #include "lichii/game/styles/style_helpers.h"
 
 namespace LibraryStyles {
@@ -240,6 +242,26 @@ void CarouselStyle::SetShowNames(bool show) {
 void CarouselStyle::SetShowInfo(bool show) {
     show_info_ = show;
     update();
+}
+
+QString CarouselStyle::CycleLook() {
+    look_ = (look_ + 1) % 3;
+    cover_cache_.clear();
+    tilted_cache_.clear();
+    reflection_cache_.clear();
+    with_reflection_cache_.clear();
+    update();
+    return look_ == 1 ? tr("Covers: cartridges") : look_ == 2 ? tr("Covers: cases") : tr("Covers: art");
+}
+
+QRectF CarouselStyle::ContentRect(qreal side) const {
+    const qreal w = look_ == 1 ? side / CartridgeAspect : look_ == 2 ? side * CaseAspect : side;
+    return QRectF((side - w) / 2.0, 0.0, w, side);
+}
+
+qreal CarouselStyle::ContentRadius(qreal side) const {
+    const QRectF content = ContentRect(side);
+    return look_ == 1 ? content.width() * 0.085 : look_ == 2 ? side * 0.02 : side * kCoverRadius;
 }
 
 QString CarouselStyle::CycleOption() {
@@ -552,6 +574,29 @@ QPixmap CarouselStyle::CoverPixmap(int row, int side) {
     if (found != cover_cache_.constEnd()) {
         return *found;
     }
+    if (look_ != 0) {
+        // The game's cartridge or case, as the Cartridges and Box Shelf styles draw it, standing
+        // in the cover's square (as tall as it, centred, transparent beside it).
+        QPixmap square(QSize(px, px));
+        square.setDevicePixelRatio(dpr);
+        square.fill(Qt::transparent);
+        const QRectF content = ContentRect(side);
+        const QModelIndex index = IndexAt(row);
+        {
+            QPainter p(&square);
+            p.setRenderHint(QPainter::SmoothPixmapTransform);
+            if (look_ == 1) {
+                const qreal margin = CartridgeMargin(content.width());
+                p.drawPixmap(QPointF(content.left() - margin, content.top() - margin),
+                             RenderCartridge(index, content.width(), dpr, palette()));
+            } else {
+                p.drawPixmap(content.topLeft(), RenderCaseFront(index, content.width(),
+                                                                content.height(), dpr, font()));
+            }
+        }
+        cover_cache_.insert(row, square);
+        return square;
+    }
     // TrimCaches keeps the cache to the covers around the selection.
     bool has_art = false;
     const QPixmap art = SourceArt(row, &has_art);
@@ -666,13 +711,23 @@ QPixmap CarouselStyle::TiltedPixmap(int row, bool right, qreal side) {
     tilted.fill(Qt::transparent);
     if (tilt.valid) {
         const QPixmap cover = CoverPixmap(row, static_cast<int>(std::ceil(side)));
-        const QPixmap& shadow = ShadowFor(side, false);
+        const QRectF content = ContentRect(side);
+        const QPixmap& shadow = ShadowFor(content.size(), ContentRadius(side), false);
         const QPixmap mirror = Reflection(cover);
         QPainter painter(&tilted);
         painter.setRenderHint(QPainter::Antialiasing);
         painter.setRenderHint(QPainter::SmoothPixmapTransform);
         painter.translate(-bounds.topLeft());
-        painter.drawPixmap(tilt.shadow, shadow, QRectF(shadow.rect()));
+        // The shadow under the cartridge or case only, not under the whole square.
+        QRectF shadow_rect = tilt.shadow;
+        if (look_ != 0) {
+            const QRectF mapped = tilt.transform.mapRect(content);
+            const qreal grow = (tilt.shadow.width() - tilt.transform.mapRect(
+                                                          QRectF(0, 0, side, side)).width()) / 2;
+            shadow_rect = QRectF(mapped.left() - grow, tilt.shadow.top(),
+                                 mapped.width() + 2 * grow, tilt.shadow.height());
+        }
+        painter.drawPixmap(shadow_rect, shadow, QRectF(shadow.rect()));
         painter.setWorldTransform(tilt.transform, true);
         painter.drawPixmap(QRectF(0, 0, side, side), cover, QRectF(cover.rect()));
         painter.drawPixmap(tilt.reflection, mirror, QRectF(mirror.rect()));
@@ -703,17 +758,21 @@ void CarouselStyle::PaintBackground(QPainter& painter) {
     painter.drawPixmap(QPointF(0, 0), BackgroundFor(cur));
 }
 
-const QPixmap& CarouselStyle::ShadowFor(qreal side, bool selected) {
-    const int px = static_cast<int>(std::ceil(side));
-    QPixmap& slot = selected ? shadow_selected_ : shadow_;
-    if (slot.isNull() || shadow_side_[selected ? 1 : 0] != px) {
-        const int blur = std::max(4, static_cast<int>(std::lround((selected ? 40.0 : 30.0) * side /
-                                                                 230.0)));
-        slot = LibraryStyleContext::SoftShadow(QSize(px, px), side * kCoverRadius, blur,
-                                               selected ? 0.5 : 0.4, devicePixelRatioF());
-        shadow_side_[selected ? 1 : 0] = px;
+const QPixmap& CarouselStyle::ShadowFor(const QSizeF& size, qreal radius, bool selected) {
+    const int w = static_cast<int>(std::ceil(size.width()));
+    const int h = static_cast<int>(std::ceil(size.height()));
+    const QString key = QStringLiteral("%1|%2|%3").arg(w).arg(h).arg(selected);
+    if (const auto found = shadow_cache_.constFind(key); found != shadow_cache_.constEnd()) {
+        return *found;
     }
-    return slot;
+    if (shadow_cache_.size() > 8) {
+        shadow_cache_.clear(); // sizes of an earlier icon size or look
+    }
+    const int blur = std::max(
+        4, static_cast<int>(std::lround((selected ? 40.0 : 30.0) * size.height() / 230.0)));
+    return *shadow_cache_.insert(key, LibraryStyleContext::SoftShadow(
+                                          QSize(w, h), radius, blur, selected ? 0.5 : 0.4,
+                                          devicePixelRatioF()));
 }
 
 void CarouselStyle::PaintCoverHeart(QPainter& painter, int row, const QTransform& transform,
@@ -724,10 +783,19 @@ void CarouselStyle::PaintCoverHeart(QPainter& painter, int row, const QTransform
     if (!LibraryStyleContext::IsFavorite(IndexAt(row))) {
         return;
     }
-    const qreal size = FavoriteHeartSize(side);
-    const QPointF center = transform.map(QPointF(size * 0.5, size * 0.5));
     const qreal drawn = transform.map(QLineF(0, 0, side, 0)).length() / side;
-    PaintFavoriteHeartAt(&painter, center, size * drawn);
+    if (look_ == 0) {
+        const qreal size = FavoriteHeartSize(side);
+        PaintFavoriteHeartAt(&painter, transform.map(QPointF(size * 0.5, size * 0.5)),
+                             size * drawn);
+        return;
+    }
+    // Cartridges and cases: the shared sticker heart, on the object as the tilt draws it.
+    const QRectF content = ContentRect(side);
+    const QPointF top_left = transform.map(content.topLeft());
+    LibraryStyleContext::PaintStickerHeart(
+        &painter, QRectF(top_left.x(), top_left.y(), content.width() * drawn,
+                         content.height() * drawn));
 }
 
 QPixmap CarouselStyle::WithReflection(const QPixmap& cover, qreal side) {
@@ -865,11 +933,13 @@ void CarouselStyle::PaintCover(QPainter& painter, const Metrics& m, int row, qre
     // cover is 230 px). Blurred once per cover size, then scaled to each cover.
     {
         const bool sel = a < 0.5;
-        const QPixmap& shadow = sel ? ShadowFor(side, true) : ShadowFor(side, false);
+        const QRectF content = ContentRect(side);
+        const QPixmap& shadow = ShadowFor(content.size(), ContentRadius(side), sel);
         const qreal k = scale;
         const qreal blur = (sel ? 40.0 : 30.0) * side / 230.0;
         const qreal drop = (sel ? 24.0 : 18.0) * side / 230.0;
-        const QRectF box = quad.boundingRect();
+        // Under what the cover shows: the art's square, or the cartridge or case in it.
+        const QRectF box = transform.map(QPolygonF(content)).boundingRect();
         const QRectF target(box.left() - blur * k, box.top() - blur * k + drop * k,
                             box.width() + 2 * blur * k, box.height() + 2 * blur * k);
         painter.drawPixmap(target, shadow, QRectF(shadow.rect()));
@@ -883,10 +953,6 @@ void CarouselStyle::PaintCover(QPainter& painter, const Metrics& m, int row, qre
         painter.drawPixmap(QRectF(0, 0, side, side * (1.0 + kReflectionGap + kReflectionShare)),
                            both, QRectF(both.rect()));
     }
-    painter.save(); // the ring below still needs the cover's transform
-    painter.resetTransform();
-    PaintCoverHeart(painter, row, transform, side);
-    painter.restore();
 
     if (a < 0.5) {
         QColor accent = LibraryStyleContext::Accent(palette());
@@ -898,9 +964,14 @@ void CarouselStyle::PaintCover(QPainter& painter, const Metrics& m, int row, qre
         painter.setBrush(Qt::NoBrush);
         // 1 px over the cover's anti-aliased edge, so no background shows in the corners.
         const qreal grow = pen.widthF() / 2.0 - 1.0;
-        painter.drawRoundedRect(QRectF(-grow, -grow, side + 2 * grow, side + 2 * grow),
-                                side * kCoverRadius + grow, side * kCoverRadius + grow);
+        const QRectF content = ContentRect(side);
+        const qreal radius = ContentRadius(side);
+        painter.drawRoundedRect(content.adjusted(-grow, -grow, grow, grow), radius + grow,
+                                radius + grow);
     }
+    // The heart over the ring, upright (not through the cover's perspective).
+    painter.resetTransform();
+    PaintCoverHeart(painter, row, transform, side);
     painter.restore();
 }
 
@@ -1024,7 +1095,7 @@ void CarouselStyle::paintEvent(QPaintEvent* event) {
     PaintDots(painter, m);
     if (dirty.bottom() >= height() - LibraryStyleContext::HintPillReserve) {
         LibraryStyleContext::PaintHintPill(
-            &painter, rect(), LibraryStyleContext::StandardHints(tr("Layout")),
+            &painter, rect(), LibraryStyleContext::StandardHints(tr("Layout"), tr("Covers")),
             LibraryStyleContext::IsDark(palette()));
     }
 }

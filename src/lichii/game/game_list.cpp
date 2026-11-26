@@ -454,6 +454,7 @@ void GameList::ActivateStyle(const LibraryStyles::StyleInfo* info) {
         style_view->SetModel(style_model);
         // The style's X option as it was left.
         style_view->SetOptionOn(StyleOptionOn(style_id));
+        style_view->SetLook(StyleLook(style_id));
         // A view may pick its first entry in SetModel without emitting CurrentChanged.
         if (style_selected_path.isEmpty()) {
             style_selected_path =
@@ -544,6 +545,12 @@ void GameList::OnControllerKey(Qt::Key key, bool auto_repeat) {
             return;
         case Qt::Key_Y:
             emit ToggleInfoRequested();
+            return;
+        case Qt::Key_Launch1: // plus: the style's look (Showcase: covers, cartridges, cases)
+            if (const QString label = style_view->CycleLook(); !label.isEmpty()) {
+                SaveStyleOption();
+                emit StyleOptionChanged(label);
+            }
             return;
         case Qt::Key_X:
             if (const QString label = style_view->CycleOption(); !label.isEmpty()) {
@@ -1220,14 +1227,15 @@ void GameList::RefreshExternalContent() {
 }
 
 namespace {
-/// "box_shelf=1,dual_pane=0" as id -> on.
-QHash<QString, bool> ParseStyleOptions() {
-    QHash<QString, bool> options;
+/// "box_shelf=1,carousel=0,carousel.look=2" as key -> value. The key is the style id for its X
+/// option, "<id>.look" for its + look.
+QHash<QString, int> ParseStyleOptions() {
+    QHash<QString, int> options;
     const QString text = QString::fromStdString(UISettings::values.library_style_options.GetValue());
     for (const QString& part : text.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
         const qsizetype eq = part.indexOf(QLatin1Char('='));
         if (eq > 0) {
-            options.insert(part.left(eq), part.mid(eq + 1) == QStringLiteral("1"));
+            options.insert(part.left(eq), part.mid(eq + 1).toInt());
         }
     }
     return options;
@@ -1235,18 +1243,26 @@ QHash<QString, bool> ParseStyleOptions() {
 } // namespace
 
 bool GameList::StyleOptionOn(const std::string& id) const {
-    return ParseStyleOptions().value(QString::fromStdString(id), false);
+    return ParseStyleOptions().value(QString::fromStdString(id), 0) == 1;
+}
+
+int GameList::StyleLook(const std::string& id) const {
+    return ParseStyleOptions().value(QString::fromStdString(id) + QStringLiteral(".look"), 0);
 }
 
 void GameList::SaveStyleOption() {
     if (style_view == nullptr || style_id.empty()) {
         return;
     }
-    QHash<QString, bool> options = ParseStyleOptions();
-    options.insert(QString::fromStdString(style_id), style_view->OptionOn());
+    QHash<QString, int> options = ParseStyleOptions();
+    const QString id = QString::fromStdString(style_id);
+    options.insert(id, style_view->OptionOn() ? 1 : 0);
+    if (style_view->Look() != 0 || options.contains(id + QStringLiteral(".look"))) {
+        options.insert(id + QStringLiteral(".look"), style_view->Look());
+    }
     QStringList parts;
     for (auto it = options.cbegin(); it != options.cend(); ++it) {
-        parts << it.key() + (it.value() ? QStringLiteral("=1") : QStringLiteral("=0"));
+        parts << it.key() + QLatin1Char('=') + QString::number(it.value());
     }
     parts.sort();
     UISettings::values.library_style_options = parts.join(QLatin1Char(',')).toStdString();

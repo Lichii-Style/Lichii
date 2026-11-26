@@ -197,6 +197,7 @@ private:
     bool HandleStyleKey(QObject* target, const QKeyEvent* event);
     /// Each style's X option, kept per style in UISettings::library_style_options.
     bool StyleOptionOn(const std::string& id) const;
+    int StyleLook(const std::string& id) const;
     void SaveStyleOption();
     /// Typing selects the next game whose name starts with what was typed, like the item views.
     void StyleKeyboardSearch(const QString& text);

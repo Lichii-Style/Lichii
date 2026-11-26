@@ -34,7 +34,7 @@ namespace LibraryStyles {
 
 namespace {
 
-constexpr double kCaseAspect = 0.62;
+constexpr double kCaseAspect = CaseAspect;
 constexpr double kTopMargin = 14.0;
 constexpr double kBottomMargin = 24.0;
 
@@ -776,18 +776,11 @@ QString BoxShelfStyle::PixmapKey(QChar kind, const QModelIndex& index, const Met
            QString::number(dark ? 1 : 0) + QLatin1Char('|') + QString::number(dpr);
 }
 
-QPixmap BoxShelfStyle::CasePixmap(const QModelIndex& index, const Metrics& m, bool dark) {
-    const double dpr = devicePixelRatioF();
-    const QString key = PixmapKey(QLatin1Char('C'), index, m, dark, dpr);
-    if (const QPixmap* cached = m_pixmaps.object(key)) {
-        return *cached;
-    }
-
+QPixmap RenderCaseFront(const QModelIndex& index, double w, double h, qreal dpr,
+                        const QFont& font) {
     // The case seen from the front, after the Box shelf concept. Newer-generation titles: a red
     // case with a header band. Others: a clear case (pale frame, open on the spine side) with a
     // red corner tab. The glyph is a neutral rounded pill; no console names.
-    const double w = m.case_w;
-    const double h = m.case_h;
     const double u = w / 150.0; // concept units: the concept case is 150 px wide
     QPixmap pm(QSize(std::max(1, qCeil(w * dpr)), std::max(1, qCeil(h * dpr))));
     pm.setDevicePixelRatio(dpr);
@@ -825,7 +818,7 @@ QPixmap BoxShelfStyle::CasePixmap(const QModelIndex& index, const Metrics& m, bo
         art = QRectF(border, band.bottom(), w - 2 * border, h - band.bottom() - border);
         // Proportions of the cartridges' header band: glyph 0.5 of the band, "2" 0.56, gap 0.18.
         const double bh = band.height();
-        QFont two = font();
+        QFont two = font;
         two.setBold(true);
         two.setPixelSize(std::max(6, qRound(bh * 0.56)));
         const double two_w = QFontMetricsF(two).horizontalAdvance(QStringLiteral("2"));
@@ -854,7 +847,17 @@ QPixmap BoxShelfStyle::CasePixmap(const QModelIndex& index, const Metrics& m, bo
     gloss.setColorAt(0.35, QColor(255, 255, 255, 0));
     p.fillRect(QRectF(0, 0, w, h), gloss);
     p.end();
+    return pm;
 
+}
+
+QPixmap BoxShelfStyle::CasePixmap(const QModelIndex& index, const Metrics& m, bool dark) {
+    const double dpr = devicePixelRatioF();
+    const QString key = PixmapKey(QLatin1Char('C'), index, m, dark, dpr);
+    if (const QPixmap* cached = m_pixmaps.object(key)) {
+        return *cached;
+    }
+    const QPixmap pm = RenderCaseFront(index, m.case_w, m.case_h, dpr, font());
     const int cost = std::max(1, pm.width() * pm.height() * 4 / 1024);
     m_pixmaps.insert(key, new QPixmap(pm), cost);
     return pm;
@@ -1225,15 +1228,13 @@ void BoxShelfStyle::DrawFront(QPainter& p, const Metrics& m, int pos, bool selec
     // Favorites: the heart on top of where the stickers sit (at the case's right edge), upright
     // in screen space like them. Not in the case pixmaps, so a favorite toggle only repaints.
     if (LibraryStyleContext::IsFavorite(index)) {
-        // Placed like on the cartridges, in the case's proportions: a fixed place past the right
-        // edge (where the stickers' right edges sit), never moved by which stickers show.
-        const qreal size = FavoriteHeartSize(w * 0.87);
-        QPointF anchor =
-            front.at(1) + (front.at(2) - front.at(1)) * 0.17 + QPointF(w * 0.07, 0);
+        // The shared sticker heart on the case as drawn: its front's upright bounds, lifted with
+        // the selected case like the stickers.
+        QRectF object = front.boundingRect();
         if (selected) {
-            anchor += QPointF(6.0 * u, -22.0 * u);
+            object.translate(6.0 * u, -22.0 * u);
         }
-        DrawStickerHeart(&p, QPointF(anchor.x() - size * 0.5, anchor.y() - size * 0.42), size);
+        LibraryStyleContext::PaintStickerHeart(&p, object);
     }
 
     // Stickers: like Dense Grid, Info shows them on the selected case only.

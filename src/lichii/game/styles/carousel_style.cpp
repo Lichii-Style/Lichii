@@ -880,6 +880,9 @@ void CarouselStyle::PaintCover(QPainter& painter, const Metrics& m, int row, qre
         tilt = 0.0;
         opacity = std::max(0.4, 1.0 - 0.1 * a);
     }
+    // Cartridges and cases are narrower than the art's square: closer together, halfway
+    // between the square's spacing and their own width (their own width alone was too tight).
+    offset *= 0.5 + 0.5 * ContentRect(side).width() / side;
     opacity *= std::clamp(kVisibleRadius + 1.0 - a, 0.0, 1.0);
     if (opacity <= 0.01) {
         return;
@@ -900,7 +903,6 @@ void CarouselStyle::PaintCover(QPainter& painter, const Metrics& m, int row, qre
         quad << QPointF(x - w / 2, m.center_y - far_h / 2) << QPointF(x + w / 2, m.center_y - h / 2)
              << QPointF(x + w / 2, m.center_y + h / 2) << QPointF(x - w / 2, m.center_y + far_h / 2);
     }
-    hits_.push_back({row, quad});
 
     const QPixmap pixmap = CoverPixmap(row, static_cast<int>(std::ceil(side)));
     QPolygonF source;
@@ -909,6 +911,8 @@ void CarouselStyle::PaintCover(QPainter& painter, const Metrics& m, int row, qre
     if (!QTransform::quadToQuad(source, quad, transform)) {
         return;
     }
+    // Clicks hit what is shown, not the transparent square beside a cartridge or case.
+    hits_.push_back({row, transform.map(QPolygonF(ContentRect(side)))});
 
     painter.save();
     painter.setOpacity(opacity);

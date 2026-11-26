@@ -20,7 +20,8 @@ public:
     void SetModel(GameListModel* model);
     /// Sorts the games like the list does (its sort column and order).
     void SetSort(int column, Qt::SortOrder order);
-    void ApplyFilter(const QString& edit_filter_text, GameListModel* model);
+    /// Hides the games the filter doesn't match; returns how many are shown.
+    int ApplyFilter(const QString& edit_filter_text, GameListModel* model);
     void UpdateIconSize();
 
     QModelIndex indexAt(const QPoint& point) const override;
